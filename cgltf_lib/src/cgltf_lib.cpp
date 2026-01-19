@@ -19,11 +19,54 @@
 #define CGLTF_WRITE_IMPLEMENTATION
 #include "cgltf/cgltf_write.h"
 
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #include <vector>
 #include <map>
 #include <string>
 
 static std::map<std::string, cgltf_data*>     loaded_files;
+
+void DumpInfo(cgltf_data *data, const char *name) 
+{
+    printf("CGLTF File Info: %s\n", name);
+    printf("------------------------------------------------\n");
+    printf("file_size          : %d\n", (int)data->file_size);
+    printf("meshes_count       : %d\n", (int)data->meshes_count);
+    printf("materials_count    : %d\n", (int)data->materials_count);
+    printf("accessors_count    : %d\n", (int)data->accessors_count);
+    printf("buffer_views_count : %d\n", (int)data->buffer_views_count);
+    printf("buffers_count      : %d\n", (int)data->buffers_count);
+    printf("images_count       : %d\n", (int)data->images_count);
+    printf("textures_count     : %d\n", (int)data->textures_count);
+    printf("samplers_count     : %d\n", (int)data->samplers_count);
+    printf("skins_count        : %d\n", (int)data->skins_count);
+    printf("cameras_count      : %d\n", (int)data->cameras_count);
+    printf("lights_count       : %d\n", (int)data->lights_count);
+    printf("nodes_count        : %d\n", (int)data->nodes_count);
+    printf("scenes_count       : %d\n", (int)data->scenes_count);
+    printf("animations_count   : %d\n", (int)data->animations_count);
+    printf("variants_count     : %d\n", (int)data->variants_count);
+    printf("json_size          : %d\n", (int)data->json_size);
+    printf("bin_size           : %d\n", (int)data->bin_size);
+}
+
+// Open a gltf file
+static int DumpGLTFInfo(lua_State* L)
+{
+    char* name = (char*)luaL_checkstring(L, 1);
+    if(loaded_files.find(name) != loaded_files.end()) {
+        cgltf_data * data = loaded_files[name];
+        DumpInfo(data, name);
+    }
+    else {
+        printf("[Error] Issue finding gltf: %s\n", name);
+    }
+    return 0;
+}
 
 // Open a gltf file
 static int OpenFile(lua_State* L)
@@ -35,20 +78,30 @@ static int OpenFile(lua_State* L)
     cgltf_options options = { cgltf_file_type(0) };
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse_file(&options, filename, &data);
-    if (result == cgltf_result_success)
+    if (result != cgltf_result_success)
     {
-        // Check if a file with this name has already been loaded, if so, free and overwrite! (with output)
-        if(loaded_files.find(filename) != loaded_files.end()) {
-            cgltf_data * old_data = loaded_files[filename];
-            cgltf_free(old_data);
-            printf("[Warning] File already loaded, replacing: %s", filename);
-        }
-        loaded_files.insert(std::pair<std::string, cgltf_data*>(filename, data));
-        lua_pushnumber(L, 1);
+        printf("[Error] Issue parsing file: %s\n", filename);
+        lua_pushnil(L);
         return 1;
-    }    
-    printf("[Error] Issue loading file: %s", filename);
-    lua_pushnil(L);
+    }
+    // if(data->buffers_count > 0) {
+    //     result = cgltf_load_buffers( &options, data, filename );
+    //     if (result != cgltf_result_success)
+    //     {
+    //         printf("[Error] Issue parsing buffers: %s\n", filename);
+    //         lua_pushnil(L);
+    //         return 1;
+    //     }        
+    // }
+
+    // Check if a file with this name has already been loaded, if so, free and overwrite! (with output)
+    if(loaded_files.find(filename) != loaded_files.end()) {
+        cgltf_data * old_data = loaded_files[filename];
+        cgltf_free(old_data);
+        printf("[Warning] File already loaded, replacing: %s\n", filename);
+    }
+    loaded_files.insert(std::pair<std::string, cgltf_data*>(filename, data));
+    lua_pushnumber(L, 1);
     return 1;
 }
 
@@ -61,7 +114,7 @@ static int CloseFile(lua_State *L)
         cgltf_free(data);
     }
     else {
-        printf("[Error] Issue loading file: %s", filename);
+        printf("[Error] Issue loading file: %s\n", filename);
     }
     return 0;
 }
@@ -82,17 +135,37 @@ static int OpenMemory(lua_State* L)
     {
         // Check if a file with this name has already been loaded, if so, free and overwrite! (with output)
         if(loaded_files.find(name) != loaded_files.end()) {
-            cgltf_data * old_data = loaded_files[name];
-            cgltf_free(old_data);
-            printf("[Warning] File already loaded, replacing: %s", name);
+            cgltf_data * data = loaded_files[name];
+            cgltf_free(data);
+            printf("[Warning] File already loaded, replacing: %s\n", name);
         }
         loaded_files.insert(std::pair<std::string, cgltf_data*>(name, data));
         lua_pushnumber(L, 1);
         return 1;
     }
-    printf("[Error] Issue loading file: %s", name);
+    printf("[Error] Issue loading buffer: %s\n", name);
     lua_pushnil(L);
-    return 0;
+    return 1;
+}
+
+static int Validate(lua_State *L)
+{
+    DM_LUA_STACK_CHECK(L, 1);
+
+    char* name = (char*)luaL_checkstring(L, 1);
+    if(loaded_files.find(name) != loaded_files.end()) {
+        cgltf_data * data = loaded_files[name];
+        cgltf_result result = cgltf_validate(data);
+        std::string result_string = (result == cgltf_result_success)? "OK": "FAILED";
+        printf("[Validation] Completed on: %s    Result: %s\n", name, result_string.c_str());
+
+        DumpInfo(data, name);
+        lua_pushnumber(L, 1);
+        return 1;
+    } 
+    printf("[Error] Issue validating: %s\n", name);
+    lua_pushnil(L);
+    return 1;
 }
 
 // Functions exposed to Lua
@@ -101,6 +174,8 @@ static const luaL_reg Module_methods[] =
     {"open_file", OpenFile},
     {"open_memory", OpenMemory},
     {"close", CloseFile},
+    {"validate", Validate},
+    {"dump_info", DumpGLTFInfo},
     {0, 0}
 };
 

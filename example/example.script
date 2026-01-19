@@ -1,9 +1,10 @@
 function init(self)
 	local s = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	local ok = cgltf.open_file("cgltf_lib/cgltf/fuzz/data/Box.glb")
-	print(ok) 
+	print(cgltf.validate("cgltf_lib/cgltf/fuzz/data/Box.glb")) 
+
 	local ok = cgltf.open_file("cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf")
-	print(ok) 
+	print(cgltf.validate("cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf")) 
 end
 
 function final(self)
