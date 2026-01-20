@@ -5,6 +5,9 @@
 
 // include the Defold SDK
 #include <dmsdk/sdk.h>
+#include <dmsdk/gamesys/components/comp_collection_proxy.h>
+#include <dmsdk/gamesys/components/comp_factory.h>
+#include <dmsdk/dlib/array.h>
 
 #define CGLTF_EXPORT extern
 
@@ -27,8 +30,86 @@
 #include <vector>
 #include <map>
 #include <string>
+#include <fstream>
 
 static std::map<std::string, cgltf_data*>     loaded_files;
+
+struct GameCtx
+{
+    dmResource::HFactory        m_Factory;
+    dmConfigFile::HConfig       m_ConfigFile;
+
+    dmGameObject::HCollection   m_MainCollection;
+    dmGameObject::HCollection   m_LevelCollection;
+
+    dmGameSystem::HCollectionProxyWorld     m_LevelCollectionProxyWorld;
+    dmGameSystem::HCollectionProxyComponent m_LevelCollectionProxy;
+
+    dmGameSystem::HFactoryWorld         m_FactoryWorld;
+    dmGameSystem::HFactoryComponent     m_MeshFactory;
+
+    dmArray<dmGameObject::HInstance>    m_Meshes;
+
+    uint64_t    m_LastFrameTime;
+    float       m_SpawnTimer;
+    float       m_SpawnTimerInterval;
+    
+    //GameState   m_State;
+    //int         m_SubState;
+
+    bool    m_IsInitialized;
+    bool    m_HasError;
+    bool    m_CollectionLoading;
+    bool    m_LevelInitialized;
+
+    GameCtx()
+    {
+        memset(this, 0, sizeof(*this));
+    }
+};
+
+static GameCtx* g_Ctx = 0;
+
+static dmGameObject::HInstance SpawnMesh(dmGameSystem::HFactoryComponent factory, cgltf_float* _pos, cgltf_float * _rot, cgltf_float * _scl)
+{
+    GameCtx* ctx = g_Ctx;
+
+    if (ctx->m_Meshes.Full())
+    {
+        dmLogWarning("Mesh buffer is full, skipping spawn of new mesh.");
+        return nullptr;
+    }
+
+    dmVMath::Point3 position(_pos[0], _pos[1], _pos[2]);
+    dmVMath::Quat rotation(_rot[0], _rot[1], _rot[2], _rot[3]);
+    dmVMath::Vector3 scale(_scl[0], _scl[1], _scl[2]);
+
+    dmhash_t meshid = dmGameObject::CreateInstanceId();
+    dmGameObject::HPropertyContainer properties = 0;
+
+    dmGameObject::HInstance instance = 0;
+    dmGameObject::Result result = dmGameSystem::CompFactorySpawn(ctx->m_FactoryWorld, factory, ctx->m_LevelCollection,
+                                                                 meshid, position, rotation, scale, properties, &instance);
+
+    ctx->m_Meshes.Push(instance);
+    return instance;
+}
+
+std::string readFile(const std::string &fileName)
+{
+    std::ifstream ifs(fileName.c_str(), std::ios::in | std::ios::binary | std::ios::ate);
+
+    std::ifstream::pos_type fileSize = ifs.tellg();
+    if (fileSize < 0)          
+        return std::string();  
+
+    ifs.seekg(0, std::ios::beg);
+
+    std::vector<char> bytes(fileSize);
+    ifs.read(&bytes[0], fileSize);
+
+    return std::string(&bytes[0], fileSize);
+}
 
 void DumpInfo(cgltf_data *data, const char *name) 
 {
@@ -74,6 +155,8 @@ static int OpenFile(lua_State* L)
     DM_LUA_STACK_CHECK(L, 1);
 
     char* filename = (char*)luaL_checkstring(L, 1);
+    std::string path(filename);
+    path.substr(0, path.find_last_of("\\/"));
 
     cgltf_options options = { cgltf_file_type(0) };
     cgltf_data* data = NULL;
@@ -84,15 +167,11 @@ static int OpenFile(lua_State* L)
         lua_pushnil(L);
         return 1;
     }
-    // if(data->buffers_count > 0) {
-    //     result = cgltf_load_buffers( &options, data, filename );
-    //     if (result != cgltf_result_success)
-    //     {
-    //         printf("[Error] Issue parsing buffers: %s\n", filename);
-    //         lua_pushnil(L);
-    //         return 1;
-    //     }        
-    // }
+
+    if (result == cgltf_result_success) {
+        cgltf_load_buffers(&options, data, path.c_str());
+        printf("[Info] Loaded buffers: %s\n", filename);
+    }
 
     // Check if a file with this name has already been loaded, if so, free and overwrite! (with output)
     if(loaded_files.find(filename) != loaded_files.end()) {
@@ -105,6 +184,43 @@ static int OpenFile(lua_State* L)
     return 1;
 }
 
+// Process a node and get the meshes. Each node will become a gameobject.
+static void ProcessNode(cgltf_scene scene, const cgltf_node *node) {
+    GameCtx* ctx = g_Ctx;
+    printf("[Info] Spawning Mesh: %s\n", node->name);
+    if(node->mesh != nullptr) {
+        //dmGameObject::HInstance inst = SpawnMesh(ctx->m_MeshFactory, node->translation, node->rotation, node->scale);
+    }
+}
+
+static int ProcessGltf(lua_State *L)
+{
+    cgltf_data * data = nullptr;
+    char* filename = (char*)luaL_checkstring(L, 1);
+    if(loaded_files.find(filename) != loaded_files.end()) {
+        data = loaded_files[filename];
+    }
+    else {
+        printf("[Error] Issue Processing file: %s\n", filename);
+        lua_pushnil(L);
+        return 1;
+    }
+
+    // Iterate scenes - generate nodes, generate meshes.
+    uint32_t scenes_count = (uint32_t)data->scenes_count;
+    printf("Scenes: %d\n", scenes_count);
+    for(uint32_t i=0; i < 1; i++) 
+    {
+        cgltf_scene scene = data->scenes[i];
+        uint32_t nodes_count = (uint32_t)scene.nodes_count;
+        printf("Scene Nodes: %d %d\n", i, nodes_count);
+        for(uint32_t j=0; j< 1; j++) {
+            printf("Nodes: %d\n", j);
+            ProcessNode(scene, scene.nodes[j]);
+        }
+    }
+}
+
 // Close an opened GLTF file.
 static int CloseFile(lua_State *L)
 {
@@ -114,7 +230,7 @@ static int CloseFile(lua_State *L)
         cgltf_free(data);
     }
     else {
-        printf("[Error] Issue loading file: %s\n", filename);
+        printf("[Error] Issue Closing file: %s\n", filename);
     }
     return 0;
 }
@@ -176,6 +292,7 @@ static const luaL_reg Module_methods[] =
     {"close", CloseFile},
     {"validate", Validate},
     {"dump_info", DumpGLTFInfo},
+    {"process", ProcessGltf},
     {0, 0}
 };
 
@@ -190,9 +307,90 @@ static void LuaInit(lua_State* L)
     assert(top == lua_gettop(L));
 }
 
+static void LoadCollection(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
+{
+    dmLogInfo("LoadCollection: %s", dmHashReverseSafe64(path));
+
+    assert(ctx->m_CollectionLoading == false);
+    assert(ctx->m_LevelCollection == 0);
+
+    //      Compat: Supported (private gameobject.h)
+    uint32_t proxy_type_index = dmGameObject::GetComponentTypeIndex(ctx->m_MainCollection, dmHashString64("collectionproxyc"));
+    dmhash_t go_name = dmHashString64("/levels");
+    dmGameObject::HInstance go = dmGameObject::GetInstanceFromIdentifier(ctx->m_MainCollection, go_name);
+    if (go == 0)
+    {
+        dmLogError("Main collection does not have a game object named %s", dmHashReverseSafe64(go_name));
+        ctx->m_HasError = true;
+        return;
+    }
+
+    uint32_t factory_type_index = dmGameObject::GetComponentTypeIndex(ctx->m_MainCollection, dmHashString64("factoryc"));
+    uint32_t component_type_index;
+    dmGameObject::Result r = dmGameObject::GetComponent(go, dmHashString64("meshfactory"), &component_type_index, (dmGameObject::HComponent*)&ctx->m_MeshFactory, (dmGameObject::HComponentWorld*)&ctx->m_FactoryWorld);
+    assert(dmGameObject::RESULT_OK == r);
+    assert(factory_type_index == component_type_index);
+
+    ctx->m_CollectionLoading = false;
+}
+
+
+static void UnloadCollection(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
+{
+    dmLogInfo("UnloadCollection: %s", dmHashReverseSafe64(path));
+
+    assert(ctx->m_CollectionLoading == false);
+    assert(ctx->m_LevelCollection != 0);
+}
+
+static void InitGame(GameCtx* ctx)
+{
+    dmLogInfo("InitGame");
+
+    const char* main_collection_path = dmConfigFile::GetString(ctx->m_ConfigFile, "bootstrap.main_collection", 0);
+
+    // Get the main collection
+    // Needs to be called after the resource types have been registered
+    dmResource::Result res = dmResource::Get(ctx->m_Factory, main_collection_path, (void**) &ctx->m_MainCollection);
+    if (dmResource::RESULT_OK != res)
+    {
+        dmLogError("Failed to get main collection '%s'", main_collection_path);
+        ctx->m_IsInitialized = true;
+        ctx->m_HasError = true;
+        return;
+    }
+    assert(ctx->m_MainCollection != 0);
+
+    ctx->m_LastFrameTime = 0;
+    ctx->m_SpawnTimerInterval = 1;
+    ctx->m_Meshes.SetCapacity(1000); // TODO: This should be from mesh config really
+
+    LoadCollection(ctx, dmHashString64("/levels"), dmHashString64("level1"));
+    ctx->m_IsInitialized = true;
+}
+
+static void ExitGame(GameCtx* ctx)
+{
+    dmLogInfo("ExitGame");
+    if(ctx == nullptr) return;
+
+    if (ctx->m_LevelCollection)
+    {
+        dmResource::Release(ctx->m_Factory, ctx->m_LevelCollection);
+        ctx->m_LevelCollection = 0;
+    }
+
+    if (ctx->m_MainCollection)
+    {
+        dmResource::Release(ctx->m_Factory, ctx->m_MainCollection);
+        ctx->m_MainCollection = 0;
+    }
+}
+
 static dmExtension::Result AppInitializecgltf_lib(dmExtension::AppParams* params)
 {
     dmLogInfo("AppInitializecgltf_lib");
+
     return dmExtension::RESULT_OK;
 }
 
@@ -200,6 +398,13 @@ static dmExtension::Result Initializecgltf_lib(dmExtension::Params* params)
 {
     // Init Lua
     LuaInit(params->m_L);
+    GameCtx* ctx = new GameCtx();
+    g_Ctx = ctx; // TODO: Figure out how to store it as the extension context
+
+    ctx->m_Factory = params->m_ResourceFactory;
+    ctx->m_ConfigFile = params->m_ConfigFile;
+    // copy any other contexts needed
+
     dmLogInfo("Registered %s Extension", MODULE_NAME);
     return dmExtension::RESULT_OK;
 }
@@ -219,6 +424,10 @@ static dmExtension::Result Finalizecgltf_lib(dmExtension::Params* params)
 static dmExtension::Result OnUpdatecgltf_lib(dmExtension::Params* params)
 {
     dmLogInfo("OnUpdatecgltf_lib");
+    // GameCtx* ctx = g_Ctx;
+    // uint64_t last_time = ctx->m_LastFrameTime;
+    // ctx->m_LastFrameTime = dmTime::GetTime();
+    // float dt = (ctx->m_LastFrameTime - last_time) / 1000000.0f;    
     return dmExtension::RESULT_OK;
 }
 
@@ -237,6 +446,15 @@ static void OnEventcgltf_lib(dmExtension::Params* params, const dmExtension::Eve
             break;
         case dmExtension::EVENT_ID_DEICONIFYAPP:
             dmLogInfo("OnEventcgltf_lib - EVENT_ID_DEICONIFYAPP");
+            break;
+        case dmExtension::EVENT_ID_ENGINE_INITIALIZED:
+            dmLogInfo("OnEventcgltf_lib - EVENT_ID_ENGINE_INITIALIZED");
+            InitGame(g_Ctx);
+            break;
+        case dmExtension::EVENT_ID_ENGINE_DELETE:
+            printf("OnEventcgltf_lib - EVENT_ID_ENGINE_DELETE\n");
+            dmLogInfo("OnEventcgltf_lib - EVENT_ID_ENGINE_DELETE");
+            ExitGame(g_Ctx);
             break;
         default:
             dmLogWarning("OnEventcgltf_lib - Unknown event id");

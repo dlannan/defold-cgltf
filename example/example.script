@@ -1,10 +1,19 @@
-function init(self)
-	local s = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	local ok = cgltf.open_file("cgltf_lib/cgltf/fuzz/data/Box.glb")
-	print(cgltf.validate("cgltf_lib/cgltf/fuzz/data/Box.glb")) 
+local model1 = "cgltf_lib/cgltf/fuzz/data/Box.glb"
+local model2 = "cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf"
 
-	local ok = cgltf.open_file("cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf")
-	print(cgltf.validate("cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf")) 
+function init(self)
+
+	timer.delay(0.5, false, function()
+		local ok = cgltf.open_file(model1)
+		print(cgltf.validate(model1)) 
+
+		cgltf.process(model1)
+
+		local ok = cgltf.open_file(model2)
+		print(cgltf.validate(model2)) 
+
+		cgltf.process(model2)
+	end)
 end
 
 function final(self)
