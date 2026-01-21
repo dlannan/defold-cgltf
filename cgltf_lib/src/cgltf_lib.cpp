@@ -42,9 +42,6 @@ struct GameCtx
     dmGameObject::HCollection   m_MainCollection;
     dmGameObject::HCollection   m_LevelCollection;
 
-    dmGameSystem::HCollectionProxyWorld     m_LevelCollectionProxyWorld;
-    dmGameSystem::HCollectionProxyComponent m_LevelCollectionProxy;
-
     dmGameSystem::HFactoryWorld         m_FactoryWorld;
     dmGameSystem::HFactoryComponent     m_MeshFactory;
 
@@ -59,7 +56,6 @@ struct GameCtx
 
     bool    m_IsInitialized;
     bool    m_HasError;
-    bool    m_CollectionLoading;
     bool    m_LevelInitialized;
 
     GameCtx()
@@ -68,9 +64,89 @@ struct GameCtx
     }
 };
 
-static GameCtx* g_Ctx = 0;
+static GameCtx* g_Ctx = nullptr;
 
-static dmGameObject::HInstance SpawnMesh(dmGameSystem::HFactoryComponent factory, cgltf_float* _pos, cgltf_float * _rot, cgltf_float * _scl)
+const dmBuffer::StreamDeclaration streams_standard_decl[] = {
+    {dmHashString64("position"), dmBuffer::VALUE_TYPE_FLOAT32, 3},
+    {dmHashString64("texcoord0"), dmBuffer::VALUE_TYPE_UINT16, 2},
+    {dmHashString64("color"), dmBuffer::VALUE_TYPE_UINT8, 4},
+};
+
+const dmBuffer::StreamDeclaration streams_notex_decl[] = {
+    {dmHashString64("position"), dmBuffer::VALUE_TYPE_FLOAT32, 3},
+    {dmHashString64("color"), dmBuffer::VALUE_TYPE_UINT8, 4},
+};
+
+const dmBuffer::StreamDeclaration streams_normals_decl[] = {
+    {dmHashString64("position"), dmBuffer::VALUE_TYPE_FLOAT32, 3},
+    {dmHashString64("normal"), dmBuffer::VALUE_TYPE_FLOAT32, 3},
+    {dmHashString64("texcoord0"), dmBuffer::VALUE_TYPE_UINT16, 2},
+    {dmHashString64("color"), dmBuffer::VALUE_TYPE_UINT8, 4},
+};
+
+static void CreatePrimitive(dmGameObject::HInstance inst, cgltf_float* data, int stream_type, int stream_size )
+{
+//     local res_path = go.get("#mesh", "vertices")
+//     local buf = resource.get_buffer(res_path)
+// 
+//     uint32_t component_type_index;
+//     dmGameObject::HComponent component;
+//     dmGameObject::HComponentWorld world;
+//     dmGameObject::Result r = dmGameObject::GetComponent(inst, dmHashString64("mesh"), &component_type_index, &component, &world);
+//     assert(dmGameObject::RESULT_OK == r);
+
+    dmBuffer::HBuffer buffer = 0x0;
+    int stream_count = 3;
+    dmBuffer::Result r;
+    switch(stream_type) {
+        case 1: 
+            stream_count = 3;
+            r = dmBuffer::Create(stream_size, streams_standard_decl, stream_count, &buffer);
+            break;
+        case 2: 
+            stream_count = 3;
+            r = dmBuffer::Create(stream_size, streams_notex_decl, stream_count, &buffer);
+            break;
+        case 3: 
+            stream_count = 3;
+            r = dmBuffer::Create(stream_size, streams_normals_decl, stream_count, &buffer);
+            break;
+        default:
+            stream_count = 3;
+            r = dmBuffer::Create(stream_size, streams_standard_decl, stream_count, &buffer);
+            break;        
+    }
+
+    if (r != dmBuffer::RESULT_OK) {
+        // handle error
+    }    
+
+    cgltf_float* bytes = 0x0;
+    uint32_t size = 0;
+    uint32_t count = 0;
+    uint32_t components = 0;
+    uint32_t stride = 0;    
+
+    r = dmBuffer::GetStream(buffer, dmHashString64("position"), (void**)&bytes, &count, &components, &stride);    
+    size_t idx = 0;
+    if (r == dmBuffer::RESULT_OK) {
+        for (int i = 0; i < count; ++i)
+        {
+            for (int c = 0; c < components; ++c)
+            {
+                bytes[c] = data[idx++];
+            }
+            bytes += stride;
+        }
+    } else {
+        // handle error
+    }
+        
+    r = dmBuffer::ValidateBuffer(buffer);    
+}
+
+static dmGameObject::HInstance SpawnMesh(dmGameSystem::HFactoryComponent factory, const cgltf_float _pos[3], 
+                                const cgltf_float _rot[4], const cgltf_float _scl[3])
 {
     GameCtx* ctx = g_Ctx;
 
@@ -84,11 +160,15 @@ static dmGameObject::HInstance SpawnMesh(dmGameSystem::HFactoryComponent factory
     dmVMath::Quat rotation(_rot[0], _rot[1], _rot[2], _rot[3]);
     dmVMath::Vector3 scale(_scl[0], _scl[1], _scl[2]);
 
+    // dmVMath::Point3 position(0,0,0);
+    // dmVMath::Quat rotation(0,0,0,1);
+    // dmVMath::Vector3 scale(2, 2, 2);
+
     dmhash_t meshid = dmGameObject::CreateInstanceId();
     dmGameObject::HPropertyContainer properties = 0;
 
     dmGameObject::HInstance instance = 0;
-    dmGameObject::Result result = dmGameSystem::CompFactorySpawn(ctx->m_FactoryWorld, factory, ctx->m_LevelCollection,
+    dmGameObject::Result result = dmGameSystem::CompFactorySpawn(ctx->m_FactoryWorld, factory, ctx->m_MainCollection,
                                                                  meshid, position, rotation, scale, properties, &instance);
 
     ctx->m_Meshes.Push(instance);
@@ -167,10 +247,16 @@ static int OpenFile(lua_State* L)
         lua_pushnil(L);
         return 1;
     }
-
-    if (result == cgltf_result_success) {
-        cgltf_load_buffers(&options, data, path.c_str());
-        printf("[Info] Loaded buffers: %s\n", filename);
+    // Load in the buffers
+    else {
+        result = cgltf_load_buffers(&options, data, filename);
+        if(result == cgltf_result_success) {
+            printf("[Info] Loaded buffers: %s\n", filename);
+        } else {
+            printf("[Error] Loading buffers: %s  Error: %d\n", filename, (int)result);
+            lua_pushnil(L);
+            return 1;
+        }
     }
 
     // Check if a file with this name has already been loaded, if so, free and overwrite! (with output)
@@ -184,13 +270,120 @@ static int OpenFile(lua_State* L)
     return 1;
 }
 
-// Process a node and get the meshes. Each node will become a gameobject.
-static void ProcessNode(cgltf_scene scene, const cgltf_node *node) {
-    GameCtx* ctx = g_Ctx;
-    printf("[Info] Spawning Mesh: %s\n", node->name);
-    if(node->mesh != nullptr) {
-        //dmGameObject::HInstance inst = SpawnMesh(ctx->m_MeshFactory, node->translation, node->rotation, node->scale);
+static void ProcessPrimitive(dmGameObject::HInstance inst, const cgltf_data* data, cgltf_primitive primitive)
+{
+    int acc_idx = cgltf_accessor_index(data, primitive.indices);
+    cgltf_accessor accessor = data->accessors[acc_idx];   
+    int bvi = cgltf_buffer_view_index(data, accessor.buffer_view);
+    cgltf_buffer_view bv = data->buffer_views[bvi];
+    int byte_offset = accessor.offset;
+    int bi = cgltf_buffer_index(data, bv.buffer);
+    cgltf_buffer buffer = data->buffers[bi];
+
+    // Determine if there are any position elements (vertices)
+    if(primitive.type == cgltf_primitive_type_triangles) {
+        printf("Found primitive triangles\n");
+
+        for(int i = 0; i<primitive.attributes_count; i++) {
+            cgltf_attribute attr = primitive.attributes[i];
+            if(attr.type == cgltf_attribute_type_position) {
+                printf("position attributes\n");
+
+                cgltf_buffer_view *bv = attr.data->buffer_view;
+                const uint8_t* buffer_data = cgltf_buffer_view_data(bv);
+
+                int length = int(bv->size);
+                int float_count = length / sizeof(cgltf_float);
+                // if(model.counted[pos_attrib] == nil) then
+                //     model.stats.vertices = model.stats.vertices + float_count / 3
+                //     model.counted[pos_attrib] = true
+                // end
+
+                // Get positions (or verts) 
+                cgltf_float *verts = new cgltf_float[float_count];
+                printf("BufferLen: %d  FloatCount: %d   %s\n", length, float_count, (char *)buffer_data);
+                memcpy(verts, buffer_data, length);
+                CreatePrimitive(inst, verts, 1, length);
+                delete [] verts;
+                // local pos_acc = pos_attrib.data
+                // local pmin = hmm.HMM_Vec3(pos_acc.min[0], pos_acc.min[1], pos_acc.min[2])
+                // local pmax = hmm.HMM_Vec3(pos_acc.max[0], pos_acc.max[1], pos_acc.max[2]) 
+                // aabb = calcAABB( aabb, pmin, pmax )
+            }
+        }
     }
+    else if(primitive.type == cgltf_primitive_type_triangle_strip) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive triangle strips\n");
+    }
+    else if(primitive.type == cgltf_primitive_type_triangle_fan) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive triangle fans\n");
+    }
+    else if(primitive.type == cgltf_primitive_type_points) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive points\n");
+    }
+    else if(primitive.type == cgltf_primitive_type_lines) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive liness\n");
+    }
+    else if(primitive.type == cgltf_primitive_type_line_loop) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive line loops\n");
+    }
+    else if(primitive.type == cgltf_primitive_type_line_strip) {
+        cgltf_attribute pos = primitive.attributes[cgltf_attribute_type_position];
+        printf("[Unsupported] Found primitive line strips\n");
+    }
+}
+
+// Process a node and get the meshes. Each node will become a gameobject.
+static void ProcessNode(const cgltf_data* data, const cgltf_node *node) {
+    GameCtx* ctx = g_Ctx;
+    if(node->name == nullptr) {
+        char *new_name = new char[10];
+        int node_id = cgltf_node_index(data, node);
+        memset(new_name, 0, 10);
+        sprintf(new_name, "node_%04d", node_id);
+        data->nodes[node_id].name = new_name;
+    }
+
+    printf("[Info] Spawning Node: %s\n", node->name);
+    if(node->mesh != nullptr) {
+        cgltf_mesh* mesh = node->mesh;
+        printf("Translation: %d Rotation: %d  Scaling: %d\n", node->has_translation, node->has_rotation, node->has_scale);
+
+        cgltf_float trans[3] = { 0.0f, 0.0f, 0.0f };
+        cgltf_float rot[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        cgltf_float scale[3] = { 1.0f, 1.0f, 1.0f };
+        if(node->has_translation) memcpy(trans, node->translation, sizeof(cgltf_float) * 3);
+        if(node->has_rotation) memcpy(rot, node->rotation, sizeof(cgltf_float) * 4);
+        if(node->has_scale) memcpy(scale, node->scale, sizeof(cgltf_float) * 3);
+        dmGameObject::HInstance inst = SpawnMesh(ctx->m_MeshFactory, trans, rot, scale);
+
+        // Now process the primitives (ie triangles with verts, texels, and colors)
+        int prim_count = (int)mesh->primitives_count;
+        for(int i = 0; i< prim_count; i++)
+        {
+            cgltf_primitive primitive = mesh->primitives[i];
+            ProcessPrimitive(inst, data, primitive);
+        }
+    }
+}
+
+static void gltf_parse_nodes(cgltf_data *data, cgltf_node *node)
+{
+	int nodes_count  = (int)node->children_count;
+	for(int node_index = 0; node_index < nodes_count; node_index++) {
+        cgltf_node * gltf_node = node->children[node_index];
+		gltf_node->parent = node;
+		gltf_parse_nodes(data, gltf_node);
+    }
+
+	if (node->mesh) {
+        ProcessNode(data, node);
+	}
 }
 
 static int ProcessGltf(lua_State *L)
@@ -207,18 +400,21 @@ static int ProcessGltf(lua_State *L)
     }
 
     // Iterate scenes - generate nodes, generate meshes.
-    uint32_t scenes_count = (uint32_t)data->scenes_count;
+    int scenes_count = (int)data->scenes_count;
     printf("Scenes: %d\n", scenes_count);
-    for(uint32_t i=0; i < 1; i++) 
+    for(int i=0; i < scenes_count; i++) 
     {
         cgltf_scene scene = data->scenes[i];
-        uint32_t nodes_count = (uint32_t)scene.nodes_count;
+        int nodes_count = (int)scene.nodes_count;
         printf("Scene Nodes: %d %d\n", i, nodes_count);
-        for(uint32_t j=0; j< 1; j++) {
+        for(int j=0; j< nodes_count; j++) {
             printf("Nodes: %d\n", j);
-            ProcessNode(scene, scene.nodes[j]);
+            gltf_parse_nodes(data, scene.nodes[j]);
         }
     }
+
+    lua_pushnumber(L, 1);
+    return 1;
 }
 
 // Close an opened GLTF file.
@@ -307,40 +503,28 @@ static void LuaInit(lua_State* L)
     assert(top == lua_gettop(L));
 }
 
-static void LoadCollection(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
+static void LoadFactory(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
 {
-    dmLogInfo("LoadCollection: %s", dmHashReverseSafe64(path));
-
-    assert(ctx->m_CollectionLoading == false);
-    assert(ctx->m_LevelCollection == 0);
-
-    //      Compat: Supported (private gameobject.h)
-    uint32_t proxy_type_index = dmGameObject::GetComponentTypeIndex(ctx->m_MainCollection, dmHashString64("collectionproxyc"));
-    dmhash_t go_name = dmHashString64("/levels");
-    dmGameObject::HInstance go = dmGameObject::GetInstanceFromIdentifier(ctx->m_MainCollection, go_name);
+    dmLogInfo("LoadFactory: %s", dmHashReverseSafe64(path));
+    dmGameObject::HInstance go = dmGameObject::GetInstanceFromIdentifier(ctx->m_MainCollection, path);
     if (go == 0)
     {
-        dmLogError("Main collection does not have a game object named %s", dmHashReverseSafe64(go_name));
+        dmLogError("Main collection does not have a game object named %s", dmHashReverseSafe64(path));
         ctx->m_HasError = true;
         return;
     }
 
     uint32_t factory_type_index = dmGameObject::GetComponentTypeIndex(ctx->m_MainCollection, dmHashString64("factoryc"));
     uint32_t component_type_index;
-    dmGameObject::Result r = dmGameObject::GetComponent(go, dmHashString64("meshfactory"), &component_type_index, (dmGameObject::HComponent*)&ctx->m_MeshFactory, (dmGameObject::HComponentWorld*)&ctx->m_FactoryWorld);
+    dmGameObject::Result r = dmGameObject::GetComponent(go, fragment, &component_type_index, (dmGameObject::HComponent*)&ctx->m_MeshFactory, (dmGameObject::HComponentWorld*)&ctx->m_FactoryWorld);
     assert(dmGameObject::RESULT_OK == r);
     assert(factory_type_index == component_type_index);
-
-    ctx->m_CollectionLoading = false;
 }
 
 
-static void UnloadCollection(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
+static void UnloadFactory(GameCtx* ctx, dmhash_t path, dmhash_t fragment)
 {
-    dmLogInfo("UnloadCollection: %s", dmHashReverseSafe64(path));
-
-    assert(ctx->m_CollectionLoading == false);
-    assert(ctx->m_LevelCollection != 0);
+    dmLogInfo("UnloadFactory: %s", dmHashReverseSafe64(path));
 }
 
 static void InitGame(GameCtx* ctx)
@@ -365,7 +549,7 @@ static void InitGame(GameCtx* ctx)
     ctx->m_SpawnTimerInterval = 1;
     ctx->m_Meshes.SetCapacity(1000); // TODO: This should be from mesh config really
 
-    LoadCollection(ctx, dmHashString64("/levels"), dmHashString64("level1"));
+    LoadFactory(ctx, dmHashString64("/meshes"), dmHashString64("meshfactory"));
     ctx->m_IsInitialized = true;
 }
 
@@ -373,12 +557,6 @@ static void ExitGame(GameCtx* ctx)
 {
     dmLogInfo("ExitGame");
     if(ctx == nullptr) return;
-
-    if (ctx->m_LevelCollection)
-    {
-        dmResource::Release(ctx->m_Factory, ctx->m_LevelCollection);
-        ctx->m_LevelCollection = 0;
-    }
 
     if (ctx->m_MainCollection)
     {

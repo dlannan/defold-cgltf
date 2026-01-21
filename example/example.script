@@ -1,8 +1,10 @@
-local model1 = "cgltf_lib/cgltf/fuzz/data/Box.glb"
-local model2 = "cgltf_lib/cgltf/fuzz/data/WaterBottle.gltf"
+local model1 = "cgltf_lib/test_data/BoxTextured/glTF/BoxTextured.gltf"
+local model2 = "cgltf_lib/test_data/Box/glTF-Binary/Box.glb"
 
 function init(self)
-
+	msg.post(".", "acquire_input_focus")
+	msg.post("@render:", "clear_color", {color = vmath.vector4(0, 0, 0, 1)})
+	
 	timer.delay(0.5, false, function()
 		local ok = cgltf.open_file(model1)
 		print(cgltf.validate(model1)) 
