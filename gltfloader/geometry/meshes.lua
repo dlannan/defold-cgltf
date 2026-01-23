@@ -71,27 +71,27 @@ mesh.create_buffer     = function(name, buffers, pid)
     local stride      = 0
     local attribs     = {}
     local float_size  = 4
-    local offset      = 0
+    local attribsize  = 0
 
     if(buffers.vertices) then 
         
-        vertcount = #buffers.vertices / 3
+        vertcount = utils.tcount(buffers.vertices) / 3
         stride = 3
         tinsert(attribs, { offset = offset, name = "position", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.vertices })
 
         if(buffers.uvs) then 
             stride = stride + 2
-            offset = offset + 3 * float_size
+            attribsize = attribsize + 3 * float_size
             tinsert(attribs, { offset = offset, name = "texcoord", count = 2, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.uvs })
         end
         if(buffers.normals) then 
             stride = stride + 3
-            offset = offset + 5 * float_size
-            tinsert(attribs, { offset = offset, name = "normal", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.vnormals })
+            attribsize = attribsize + 3 * float_size
+            tinsert(attribs, { offset = offset, name = "normal", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.normals })
         end
         if(buffers.colors) then 
             stride = stride + 4
-            offset = offset + 8 * float_size
+            attribsize = attribsize + 4 * float_size
             tinsert(attribs, { offset = offset, name = "color", count = 4, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.colors })
         end
     end
@@ -114,9 +114,6 @@ mesh.create_buffer     = function(name, buffers, pid)
         buffs.index_type = buffers.itype
     end
 
-    local uvptr = nil
-    local nptr = nil
-    local cptr = nil
     if(buffers.vertices) then 
 
         local all_attribs = {}
@@ -128,14 +125,21 @@ mesh.create_buffer     = function(name, buffers, pid)
                 count = v.count
             })
         end
-        
-        local buffer_handle = buffer.create(vertcount * stride, all_attribs)
+
+        local datasize = buffers.icount * attribsize
+        if(buffers.icount == 0) then 
+            datasize = vertcount * attribsize * 3
+        end
+
+        pprint(datasize)
+        local buffer_handle = buffer.create(datasize, all_attribs)
 
         for i, v in ipairs(attribs) do
             local stream = buffer.get_stream(buffer_handle, hash(v.name))
             -- transfer vertex data to buffer
-            for k=0, utils.tcount(v.data)-1 do
-                stream[k+1] = tonumber(v.data[k])
+            for bi, index in ipairs(buffers.indices) do
+                print(v.name, i, bi, index)
+                stream[bi+1] = tonumber(v.data[index])
             end        
         end
         local buffer_name = string.format("/mesh_buffer_%s_%03d.bufferc", name, pid)
