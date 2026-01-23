@@ -1,5 +1,6 @@
 local model1 = "test_data/BoxTextured/glTF/BoxTextured.gltf"
 local model2 = "test_data/Box/glTF-Binary/Box.glb"
+local model3 = "test_data/SimpleMeshes/glTF/SimpleMeshes.gltf"
 
 local geom          = require("gltfloader.geometry-utils")
 local gltfloader    = require("gltfloader.gltfloader")
@@ -42,16 +43,16 @@ end
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
-	msg.post("@render:", "clear_color", {color = vmath.vector4(0, 0, 0, 1)})
+	msg.post("@render:", "clear_color", {color = vmath.vector4(0, 0, 1, 1)})
 	
 	timer.delay(0.5, false, function()
 		local mesh1 = load_gltf(model1)
 		cgltf.cgltf_validate("BoxTex", mesh1.data)
 		tinsert(meshes, mesh1)
 
-		local mesh2 = load_gltf(model2)
-		cgltf.cgltf_validate("Box", mesh2.data)
-		tinsert(meshes, mesh2)
+		local mesh3 = load_gltf(model3)
+		cgltf.cgltf_validate("SimpleMesh", mesh3.data)
+		tinsert(meshes, mesh3)
 	end)
 end
 

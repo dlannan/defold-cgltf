@@ -188,6 +188,31 @@ static int lib_get_image_bufferview(lua_State *L) {
     return 1;
 }
 
+static int lib_get_buffer_view(lua_State *L) {
+    cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
+    
+    lua_newtable(L);
+
+    lua_pushstring(L, "size");
+    lua_pushnumber(L, bv->size);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "stride");
+    lua_pushnumber(L, bv->stride);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "offset");
+    lua_pushnumber(L, bv->offset);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "type");
+    lua_pushnumber(L, bv->type);
+    lua_settable(L, -3);
+
+    return 1;
+}
+
+
 static int lib_get_buffer_view_size(lua_State *L) {
     cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
     lua_pushnumber(L, bv->size);
@@ -197,54 +222,143 @@ static int lib_get_buffer_view_size(lua_State *L) {
 static int lib_get_buffer_view_index_data(lua_State *L) {
     cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
     int datasize = lua_tonumber(L, 2);
+    printf("Buffer Size: %d\n", datasize);
 
     printf("BV Size: %d  BV Offset %d  BV Stride %d\n", (int)bv->size, (int)bv->offset, (int)bv->stride);
     if(bv) {
         uint8_t *data = (uint8_t *)cgltf_buffer_view_data(bv);
+        int count = bv->size;
         lua_newtable(L);
-        switch(datasize) {
-            case 1: {
-                int count = bv->size;
-                uint8_t *dataptr = (uint8_t*)data;
-                for(int i=0; i<count; ) {
-                    lua_pushinteger(L, i);
-                    lua_pushinteger(L, dataptr[i]);
-                    lua_settable(L, -3);
-                }
+        if(datasize == 1) {
+            uint8_t *dataptr = data;
+            for(int i=0; i<count; i++ ) {
+                lua_pushinteger(L, i);
+                lua_pushinteger(L, dataptr[i]);
+                lua_settable(L, -3);
             }
-            break;
-            case 2: {
-                int count = bv->size/2;  // Default is uint16
-                uint16_t *dataptr = (uint16_t*)data;
-                for(int i=0; i<count; ) {
-                    lua_pushinteger(L, i);
-                    lua_pushinteger(L, (int)dataptr[i]);
-                    lua_settable(L, -3);
-                }
+        }
+        else if(datasize == 2)
+        {
+            count = bv->size/2;  // Default is uint16
+            uint16_t *dataptr = (uint16_t*)data;
+            for(int i=0; i<count; i++ ) {
+                lua_pushinteger(L, i);
+                lua_pushinteger(L, (int)dataptr[i]);
+                lua_settable(L, -3);
             }
-            break;
-            case 4: {
-                int count = bv->size/4; 
-                uint32_t *dataptr = (uint32_t*)data;
-                for(int i=0; i<count; )
-                {
-                    lua_pushinteger(L, i);
-                    lua_pushinteger(L, dataptr[i]);
-                    lua_settable(L, -3);
-                }
+        }
+        else if(datasize == 4)
+        {
+            count = bv->size/4; 
+            uint32_t *dataptr = (uint32_t*)data;
+            for(int i=0; i<count; i++)
+            {
+                lua_pushinteger(L, i);
+                lua_pushinteger(L, dataptr[i]);
+                lua_settable(L, -3);
             }
-            break;
-            default:
-                printf("[Error] Primitive buffer invalid data size: %d\n", datasize);
-                lua_pushnil(L);
+        }
+        else {
+            printf("[Error] Primitive buffer invalid data size: %d\n", datasize);
+            lua_pushnil(L);
         }
     }
     else {
         printf("[Error] Primitive buffer invalid buffer_view.\n");
         lua_pushnil(L);
     }
-
     return 1;
+}
+
+static int lib_get_buffer_view_vertex_data(lua_State *L) {
+    cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
+    if(bv) {
+        uint8_t *data = (uint8_t *)cgltf_buffer_view_data(bv);
+        int count = bv->size/4;
+        lua_newtable(L);
+        float *dataptr = (float *)data;
+        for(int i=0; i<count; i++ ) {
+            lua_pushinteger(L, i);
+            lua_pushnumber(L, dataptr[i]);
+            lua_settable(L, -3);
+        }
+    }
+    else {
+        printf("[Error] Primitive buffer invalid buffer_view.\n");
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
+static void addAccessor(lua_State *L, cgltf_data * data, cgltf_accessor *acc)
+{
+    lua_pushstring(L, "addr" );
+    lua_pushlightuserdata(L, acc);
+    lua_settable(L, -3);
+
+    char *name = acc->name;
+    if(name == nullptr) {
+        int acc_id = cgltf_accessor_index(data, acc);
+        make_name(name, "acc_", acc_id);
+    }
+
+    lua_pushstring(L, "name" );
+    lua_pushstring(L, name);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "component_type" );
+    lua_pushinteger(L, (int)acc->component_type);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "normalized" );
+    lua_pushboolean(L, acc->normalized);
+    lua_settable(L, -3);    
+
+    lua_pushstring(L, "type" );
+    lua_pushinteger(L, (int)acc->type);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "count" );
+    lua_pushinteger(L, (int)acc->count);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "offset" );
+    lua_pushinteger(L, (int)acc->offset);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "stride" );
+    lua_pushinteger(L, (int)acc->stride);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "buffer_view" );
+    lua_pushlightuserdata(L, acc->buffer_view);
+    lua_settable(L, -3);    
+
+    lua_pushstring(L, "has_min" );
+    lua_pushboolean(L, acc->has_min);
+    lua_settable(L, -3);    
+
+    lua_pushstring(L, "has_max" );
+    lua_pushboolean(L, acc->has_max);
+    lua_settable(L, -3);    
+
+    lua_pushstring(L, "min");
+    lua_newtable(L);    
+    for(int i=0; i<16; i++) {
+        lua_pushinteger(L, i);
+        lua_pushnumber(L, acc->min[i]);
+        lua_settable(L, -3);
+    }
+    lua_settable(L, -3);   
+
+    lua_pushstring(L, "max");
+    lua_newtable(L);    
+    for(int i=0; i<16; i++) {
+        lua_pushinteger(L, i);
+        lua_pushnumber(L, acc->max[i]);
+        lua_settable(L, -3);
+    }
+    lua_settable(L, -3);   
 }
 
 static int lib_get_textures_count(lua_State *L) {
@@ -280,12 +394,8 @@ static int lib_get_materials_count(lua_State *L) {
     return 1;
 }
 
-static int lib_get_material(lua_State *L) {
-    cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
-    int i = lua_tonumber(L, 2);
-    lua_newtable(L);
-    cgltf_material * mat = &data->materials[i];
-
+static void fetchMaterial(lua_State *L, cgltf_data *data, cgltf_material *mat)
+{
     lua_pushstring(L, "addr" );
     lua_pushlightuserdata(L, mat);
     lua_settable(L, -3);
@@ -388,6 +498,23 @@ static int lib_get_material(lua_State *L) {
         lua_settable(L, -3);
 
     lua_settable(L, -3);    
+}
+
+static int lib_get_material(lua_State *L) {
+    cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
+    cgltf_material * mat = (cgltf_material *)lua_touserdata(L, 2);
+    lua_newtable(L);
+    fetchMaterial(L, data, mat);
+    return 1;
+}
+
+static int lib_get_material_index(lua_State *L) {
+    cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
+    int i = lua_tonumber(L, 2);
+    lua_newtable(L);
+    cgltf_material * mat = &data->materials[i];
+
+    fetchMaterial(L, data, mat);
     return 1;
 }
 
@@ -440,7 +567,8 @@ static int lib_get_mesh(lua_State *L) {
 }
 
 static int lib_get_mesh_primitive(lua_State *L) {
-    cgltf_mesh * mesh = (cgltf_mesh *)lua_touserdata(L, 1);
+    cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
+    cgltf_mesh * mesh = (cgltf_mesh *)lua_touserdata(L, 2);
     int i = lua_tonumber(L, 2);
 
     lua_newtable(L);
@@ -482,8 +610,10 @@ static int lib_get_mesh_primitive(lua_State *L) {
             lua_pushstring(L, "index" );
             lua_pushinteger(L, attrib.index);
             lua_settable(L, -3);
+
             lua_pushstring(L, "data" );
-            lua_pushlightuserdata(L, attrib.data);
+            lua_newtable(L);
+            addAccessor(L, data, (cgltf_accessor *)attrib.data);
             lua_settable(L, -3);
         
         lua_settable(L, -3);
@@ -636,71 +766,7 @@ static int lib_get_accessor(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     cgltf_accessor * acc = (cgltf_accessor *)lua_touserdata(L, 2);
     lua_newtable(L);
-
-    lua_pushstring(L, "addr" );
-    lua_pushlightuserdata(L, acc);
-    lua_settable(L, -3);
-
-    char *name = acc->name;
-    if(name == nullptr) {
-        int acc_id = cgltf_accessor_index(data, acc);
-        make_name(name, "acc_", acc_id);
-    }
-
-    lua_pushstring(L, "name" );
-    lua_pushstring(L, name);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "component_type" );
-    lua_pushinteger(L, (int)acc->component_type);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "normalized" );
-    lua_pushboolean(L, acc->normalized);
-    lua_settable(L, -3);    
-
-    lua_pushstring(L, "type" );
-    lua_pushinteger(L, (int)acc->type);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "offset" );
-    lua_pushinteger(L, (int)acc->offset);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "stride" );
-    lua_pushinteger(L, (int)acc->stride);
-    lua_settable(L, -3);
-
-    lua_pushstring(L, "buffer_view" );
-    lua_pushlightuserdata(L, acc->buffer_view);
-    lua_settable(L, -3);    
-
-    lua_pushstring(L, "has_min" );
-    lua_pushboolean(L, acc->has_min);
-    lua_settable(L, -3);    
-
-    lua_pushstring(L, "has_max" );
-    lua_pushboolean(L, acc->has_max);
-    lua_settable(L, -3);    
-
-    lua_pushstring(L, "min");
-    lua_newtable(L);    
-    for(int i=0; i<16; i++) {
-        lua_pushinteger(L, i);
-        lua_pushnumber(L, acc->min[i]);
-        lua_settable(L, -3);
-    }
-    lua_settable(L, -3);   
-
-    lua_pushstring(L, "max");
-    lua_newtable(L);    
-    for(int i=0; i<16; i++) {
-        lua_pushinteger(L, i);
-        lua_pushnumber(L, acc->max[i]);
-        lua_settable(L, -3);
-    }
-    lua_settable(L, -3);   
-
+    addAccessor(L, data, acc);
     return 1;
 }
 
@@ -718,8 +784,10 @@ static const luaL_reg Module_methods[] =
     {"get_image_uri", lib_get_image_uri},
     {"get_image_buffer_view", lib_get_image_bufferview},
 
+    {"get_buffer_view", lib_get_buffer_view},
     {"get_buffer_view_size", lib_get_buffer_view_size},
     {"get_buffer_view_index_data", lib_get_buffer_view_index_data},
+    {"get_buffer_view_vertex_data", lib_get_buffer_view_vertex_data},
 
     {"get_textures_count", lib_get_textures_count},
     {"get_texture", lib_get_texture},
@@ -727,6 +795,7 @@ static const luaL_reg Module_methods[] =
     {"get_texture_image", lib_get_texture_image},
 
     {"get_materials_count", lib_get_materials_count},
+    {"get_material_index", lib_get_material_index},
     {"get_material", lib_get_material},
 
     {"get_meshes_count", lib_get_meshes_count},

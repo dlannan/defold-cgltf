@@ -20,10 +20,18 @@ local tinsert       = table.insert
 
 -- local shc           = require("tools.shader_compiler.shc_compile").init( "dim", false )
 
+local bufferid        = 1
+
 -- ----------------------------------------------------------------------------------------
 
 local all_meshes = {
     materials   = {},           -- A material shader cache.
+}
+
+local GLTF_VERTEXFORMAT = {
+    FLOAT2         = 2, 
+    FLOAT3         = 3,
+    FLOAT4         = 4,
 }
 
 -- ----------------------------------------------------------------------------------------
@@ -54,7 +62,7 @@ end
 
 -- ----------------------------------------------------------------------------------------
 -- Buffer creation tool
-mesh.create_buffer     = function(name, buffers)
+mesh.create_buffer     = function(name, buffers, pid)
 
     -- Make a mesh table with the info we need to build the pipeline and bindings.
     -- Buffers need to be interleaved with data sets, so we do this here. 
@@ -62,29 +70,29 @@ mesh.create_buffer     = function(name, buffers)
 
     local stride      = 0
     local attribs     = {}
-    local float_size  = ffi.sizeof("float")
+    local float_size  = 4
     local offset      = 0
 
     if(buffers.vertices) then 
         
-        vertcount = ffi.sizeof(buffers.vertices) / (3 * float_size)
+        vertcount = #buffers.vertices / 3
         stride = 3
-        tinsert(attribs, { offset = offset, format = sg.SG_VERTEXFORMAT_FLOAT3 })
+        tinsert(attribs, { offset = offset, name = "position", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.vertices })
 
         if(buffers.uvs) then 
             stride = stride + 2
             offset = offset + 3 * float_size
-            tinsert(attribs, { offset = offset, format = sg.SG_VERTEXFORMAT_FLOAT2 })
+            tinsert(attribs, { offset = offset, name = "texcoord", count = 2, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.uvs })
         end
         if(buffers.normals) then 
             stride = stride + 3
             offset = offset + 5 * float_size
-            tinsert(attribs, { offset = offset, format = sg.SG_VERTEXFORMAT_FLOAT3 })
+            tinsert(attribs, { offset = offset, name = "normal", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.vnormals })
         end
         if(buffers.colors) then 
             stride = stride + 4
             offset = offset + 8 * float_size
-            tinsert(attribs, { offset = offset, format = sg.SG_VERTEXFORMAT_FLOAT4 })
+            tinsert(attribs, { offset = offset, name = "color", count = 4, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.colors })
         end
     end
 
@@ -98,6 +106,7 @@ mesh.create_buffer     = function(name, buffers)
         stride  = stride,
         attrs   = attribs,
         depth   = {},
+        pid     = pid,
     }
 
     if(buffers.indices) then 
@@ -109,70 +118,65 @@ mesh.create_buffer     = function(name, buffers)
     local nptr = nil
     local cptr = nil
     if(buffers.vertices) then 
-        local buffer = ffi.new("float[?]", vertcount * stride)
-        local vptr = ffi.cast("float *", buffers.vertices)
 
-        if(buffers.uvs) then uvptr = ffi.cast("float *", buffers.uvs) end
-        if(buffers.normals) then nptr = ffi.cast("float *", buffers.normals) end
-        if(buffers.colors) then cptr = ffi.cast("float *", buffers.colors) end
-
-        -- Copy in interlaced! 
-        local ptr = ffi.cast("float *", buffer) 
-        for i=1, vertcount do 
-            ffi.copy(ptr, vptr,  3 * float_size)
-            vptr = vptr + 3
-            ptr = ptr + 3
-
-            if(buffers.uvs) then 
-                ffi.copy(ptr, uvptr, 2* float_size)
-                uvptr = uvptr + 2
-                ptr = ptr + 2
-            end
-            if(buffers.normals) then 
-                ffi.copy(ptr, nptr,  3* float_size)
-                nptr = nptr + 3
-                ptr = ptr + 3
-            end
-            if(buffers.colors) then 
-                ffi.copy(ptr, cptr,  4* float_size)
-                cptr = cptr + 4
-                ptr = ptr + 4
-            end
+        local all_attribs = {}
+        for i,v in ipairs(attribs) do
+            tinsert(all_attribs,        
+            {
+                name  = hash(v.name),
+                type  = v.type,
+                count = v.count
+            })
         end
+        
+        local buffer_handle = buffer.create(vertcount * stride, all_attribs)
+
+        for i, v in ipairs(attribs) do
+            local stream = buffer.get_stream(buffer_handle, hash(v.name))
+            -- transfer vertex data to buffer
+            for k=0, utils.tcount(v.data)-1 do
+                stream[k+1] = tonumber(v.data[k])
+            end        
+        end
+        local buffer_name = string.format("/mesh_buffer_%s_%03d.bufferc", name, pid)
+
+        local success, result = pcall(resource.get_buffer, buffer_name)
+        local my_buffer = hash(buffer_name)
+        if not success then
+            my_buffer = resource.create_buffer(buffer_name, { buffer = buffer_handle })
+        end        
+        
         -- buffer should now have interlaced data
-        if(ffi.sizeof(buffer) > 0) then 
-            local buffer_desc           = ffi.new("sg_buffer_desc[1]")
-            buffer_desc[0].type         = sg.SG_BUFFERTYPE_VERTEXBUFFER 
-            buffer_desc[0].data.ptr     = buffer
-            buffer_desc[0].data.size    = ffi.sizeof(buffer)
-            buffer_desc[0].label        = name.."-vertices"
-            buffs.vbuf = sg.sg_make_buffer(buffer_desc)
-        else 
-            return nil         
-        end
+        local buffer_desc           = {}
+        buffer_desc.type         = "VERTEXBUFFER"
+        buffer_desc.buffer       = my_buffer
+        buffer_desc.size         = vertcount * stride
+        buffer_desc.attribs      = attribs
+        buffer_desc.label        = buffer_name
+        buffs.vbuf = buffer_desc
     end
 
     if(buffers.indices) then
-        if(ffi.sizeof(buffers.indices) > 0) then 
-            local buffer_desc           = ffi.new("sg_buffer_desc[1]")
-            buffer_desc[0].type         = sg.SG_BUFFERTYPE_INDEXBUFFER 
-            buffer_desc[0].data.ptr     = buffers.indices
-            buffer_desc[0].data.size    = ffi.sizeof(buffers.indices)
-            buffer_desc[0].label        = name.."-indices"
-            buffs.ibuf = sg.sg_make_buffer(buffer_desc)    
+        if(#buffers.indices > 0) then 
+            local buffer_desc           = {}
+            buffer_desc.type         = "INDEXBUFFER"
+            buffer_desc.buffer       = my_buffer
+            buffer_desc.size         = buffers.icount
+            buffer_desc.label        = name.."-indices"
+            buffs.ibuf = buffer_desc
         else 
             return nil         
         end
     end
 
     if(buffers.storage) then 
-        if(ffi.sizeof(buffers.storage) > 0) then 
-            local buffer_desc           = ffi.new("sg_buffer_desc[1]")
-            buffer_desc[0].type         = sg.SG_BUFFERTYPE_STORAGEBUFFER
-            buffer_desc[0].data.ptr     = buffers.storage
-            buffer_desc[0].data.size    = ffi.sizeof(buffers.storage)
-            buffer_desc[0].label        = name.."-storage"
-            buffs.sbuf = sg.sg_make_buffer(buffer_desc)     
+        if(#buffers.storage > 0) then 
+            local buffer_desc           = {}
+            buffer_desc.type         = "STORAGEBUFFER"
+            buffer_desc.buffer       = my_buffer
+            buffer_desc.size         = buffers.scount
+            buffer_desc.label        = name.."-storage"
+            buffs.sbuf = buffer_desc     
         else 
             return nil         
         end        
@@ -202,17 +206,17 @@ mesh.material  = function(name, shaderfile, params)
     local cached = all_meshes.materials[shaderfile]
     if(cached) then return cached end
 
-    local shader    = shc.compile(shaderfile)
-    local shd       = sg.sg_make_shader(shader)
+    -- local shader    = shc.compile(shaderfile)
+    local shd       = {} -- sg.sg_make_shader(shader)
 
-    local sampler_desc      = ffi.new("sg_sampler_desc")
-    sampler_desc.min_filter = sg.SG_FILTER_LINEAR
-    sampler_desc.mag_filter = sg.SG_FILTER_LINEAR
-    sampler_desc.wrap_u     = sg.SG_WRAP_REPEAT
-    sampler_desc.wrap_v     = sg.SG_WRAP_REPEAT
-    sampler_desc.wrap_w     = sg.SG_WRAP_REPEAT  -- only needed for 3D textures
+    local sampler_desc      = {}
+    sampler_desc.min_filter = "SG_FILTER_LINEAR"
+    sampler_desc.mag_filter = "SG_FILTER_LINEAR"
+    sampler_desc.wrap_u     = "SG_WRAP_REPEAT"
+    sampler_desc.wrap_v     = "SG_WRAP_REPEAT"
+    sampler_desc.wrap_w     = "SG_WRAP_REPEAT"  -- only needed for 3D textures
     
-    local default_sampler = sg.sg_make_sampler(sampler_desc)
+    local default_sampler = sampler_desc
 
     if(shd) then 
         local material = {
@@ -240,13 +244,13 @@ mesh.make_mesh = function(name, buffers)
         print("[Error mesh.make_mesh] No buffers to process!")
         return nil 
     end
-    mesh.layout.buffers = ffi.new("sg_vertex_buffer_layout_state[8]")
-    mesh.layout.attrs   = ffi.new("sg_vertex_attr_state[16]")
+    mesh.layout.buffers = {}
+    mesh.layout.attrs   = {}
     -- One attr for each buffer
     for bi, buffer in ipairs(buffers) do
-        
         if(buffer) then 
-            mesh.layout.buffers[bi-1].stride = buffer.stride * ffi.sizeof("float")
+            mesh.layout.buffers[bi-1] = mesh.layout.buffers[bi-1] or {}
+            mesh.layout.buffers[bi-1].stride = buffer.stride * 4
         end
 
         if(buffer.index_type) then 
@@ -259,13 +263,14 @@ mesh.make_mesh = function(name, buffers)
 
         if(buffer.attrs) then 
             for i, attr in ipairs(buffer.attrs) do
+                mesh.layout.attrs[i-1] = mesh.layout.attrs[i-1] or {}
                 mesh.layout.attrs[i-1].format = attr.format
                 mesh.layout.attrs[i-1].offset = attr.offset
             end
         end
 
         if(mesh.depth) then 
-            mesh.depth = ffi.new("sg_depth_state")
+            mesh.depth = {}
             if(buffer.depth.write_enabled) then 
                 mesh.depth.write_enabled = buffer.depth.write_enabled
             end
@@ -289,24 +294,30 @@ mesh.model     = function(name, prim, mesh, material)
     -- Stores material with mesh - this should be an index
     -- mesh.material = material
 
-    local pipe_desc = ffi.new("sg_pipeline_desc[1]", {})
-    pipe_desc[0].layout.buffers         = mesh.layout.buffers
-    pipe_desc[0].layout.attrs           = mesh.layout.attrs
-    pipe_desc[0].shader                 = material.shader 
+    local pipe_desc = {}
+    pipe_desc.layout = pipe_desc.layout or {}
+    pipe_desc.depth = pipe_desc.depth or {}
+    pipe_desc.layout.buffers         = mesh.layout.buffers
+    pipe_desc.layout.attrs           = mesh.layout.attrs
+    pipe_desc.shader                 = material.shader 
 
-    if(mesh.index_type) then pipe_desc[0].index_type = mesh.index_type end
-    if(mesh.cull_mode) then pipe_desc[0].cull_mode = mesh.cull_mode end
+    if(mesh.index_type) then pipe_desc.index_type = mesh.index_type end
+    if(mesh.cull_mode) then pipe_desc.cull_mode = mesh.cull_mode end
     if(mesh.depth) then 
-        if(mesh.depth.write_enabled) then pipe_desc[0].depth.write_enabled = mesh.depth.write_enabled end
-        if(mesh.depth.compare) then pipe_desc[0].depth.compare = mesh.depth.compare end
+        if(mesh.depth.write_enabled) then pipe_desc.depth.write_enabled = mesh.depth.write_enabled end
+        if(mesh.depth.compare) then pipe_desc.depth.compare = mesh.depth.compare end
     end
-    if(prim.material.alpha_mode == cgltf.cgltf_alpha_mode_blend) then 
-        pipe_desc[0].colors[0].blend.enabled = true
-        pipe_desc[0].colors[0].blend.src_factor_rgb = sg.SG_BLENDFACTOR_SRC_ALPHA
-        pipe_desc[0].colors[0].blend.dst_factor_rgb = sg.SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
-        pipe_desc[0].colors[0].blend.src_factor_alpha = sg.SG_BLENDFACTOR_ONE
-        pipe_desc[0].colors[0].blend.dst_factor_alpha = sg.SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA
-    elseif(prim.material.alpha_mode == cgltf.cgltf_alpha_mode_mask) then 
+
+    local prim_mat = cgltf.get_material(model.data, prim.material)    
+    if(prim_mat.alpha_mode == cgltf.cgltf_alpha_mode_blend) then 
+        pipe_desc.colors = pipe_desc.colors or {}
+        pipe_desc.colors.blend = pipe_desc.colors.blend or {}
+        pipe_desc.colors.blend.enabled = true
+        pipe_desc.colors.blend.src_factor_rgb = "SG_BLENDFACTOR_SRC_ALPHA"
+        pipe_desc.colors.blend.dst_factor_rgb = "SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA"
+        pipe_desc.colors.blend.src_factor_alpha = "SG_BLENDFACTOR_ONE"
+        pipe_desc.colors.blend.dst_factor_alpha = "SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA"
+    elseif(prim_mat.alpha_mode == cgltf.cgltf_alpha_mode_mask) then 
 
     end
 

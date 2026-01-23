@@ -29,6 +29,19 @@ cgltf_component_type_r_32u		= 5 -- /* UNSIGNED_INT */
 cgltf_component_type_r_32f		= 6 -- /* FLOAT */
 cgltf_component_type_max_enum   = 7 
 
+cgltf_attribute_type 			= {
+	invalid 	= 0,
+	position	= 1,
+	normal		= 2,
+	tangent		= 3,
+	texcoord	= 4,
+	color		= 5,
+	joints		= 6,
+	weights		= 7, 
+	custom		= 8,
+	max_enum	= 9,
+}
+
 ------------------------------------------------------------------------------------------------------------
 
 local gltfloader = {
@@ -47,7 +60,6 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 	local prims = thismesh.primitives	
 
 	if(prims == nil) then print("No Primitives?"); return end 
-
 	-- Iterate primitives in this mesh
 	for k,prim in pairs(prims) do
 
@@ -110,8 +122,8 @@ end
 -- Combine AABB's of model with primitives. 
 local function calcAABB( aabb, aabbmin, aabbmax )
 	aabb = aabb or { 
-		min = hmm.HMM_Vec3(math.huge,math.huge,math.huge), 
-		max = hmm.HMM_Vec3(-math.huge,-math.huge,-math.huge) 
+		min =vmath.vector3(math.huge,math.huge,math.huge), 
+		max =vmath.vector3(-math.huge,-math.huge,-math.huge) 
 	}
 	aabb.min.x = math.min(aabb.min.x, aabbmin.x)
 	aabb.min.y = math.min(aabb.min.y, aabbmin.y)
@@ -128,23 +140,23 @@ end
 local function transformAABB(aabb, tform)
     -- compute 8 corners of the local AABB
     local corners = {
-        hmm.HMM_Vec3(aabb.min.x, aabb.min.y, aabb.min.z),
-        hmm.HMM_Vec3(aabb.max.x, aabb.min.y, aabb.min.z),
-        hmm.HMM_Vec3(aabb.min.x, aabb.max.y, aabb.min.z),
-        hmm.HMM_Vec3(aabb.min.x, aabb.min.y, aabb.max.z),
-        hmm.HMM_Vec3(aabb.min.x, aabb.max.y, aabb.max.z),
-        hmm.HMM_Vec3(aabb.max.x, aabb.max.y, aabb.min.z),
-        hmm.HMM_Vec3(aabb.max.x, aabb.min.y, aabb.max.z),
-        hmm.HMM_Vec3(aabb.max.x, aabb.max.y, aabb.max.z),
+       vmath.vector3(aabb.min.x, aabb.min.y, aabb.min.z),
+       vmath.vector3(aabb.max.x, aabb.min.y, aabb.min.z),
+       vmath.vector3(aabb.min.x, aabb.max.y, aabb.min.z),
+       vmath.vector3(aabb.min.x, aabb.min.y, aabb.max.z),
+       vmath.vector3(aabb.min.x, aabb.max.y, aabb.max.z),
+       vmath.vector3(aabb.max.x, aabb.max.y, aabb.min.z),
+       vmath.vector3(aabb.max.x, aabb.min.y, aabb.max.z),
+       vmath.vector3(aabb.max.x, aabb.max.y, aabb.max.z),
     }
 
     local newAABB = { 
-        min = hmm.HMM_Vec3(math.huge, math.huge, math.huge),
-        max = hmm.HMM_Vec3(-math.huge, -math.huge, -math.huge)
+        min =vmath.vector3(math.huge, math.huge, math.huge),
+        max =vmath.vector3(-math.huge, -math.huge, -math.huge)
     }
 
     for i=1,#corners do
-        local worldCorner = hmm.HMM_MultiplyMat4ByVec4(tform, hmm.HMM_Vec4(corners[i].x, corners[i].y, corners[i].z, 1))
+		local worldCorner = tform * vmath.vector4(corners[i].x, corners[i].y, corners[i].z, 1)
         newAABB.min.x = math.min(newAABB.min.x, worldCorner.x)
         newAABB.min.y = math.min(newAABB.min.y, worldCorner.y)
         newAABB.min.z = math.min(newAABB.min.z, worldCorner.z)
@@ -170,7 +182,6 @@ end
 function gltfloader:processdata( model, gochildname, thisnode, parent )
 
 	--print(model)
-	pprint("-------->>> MESH:", thisnode.mesh)
 	local thismesh = cgltf.get_mesh(model.data, thisnode.mesh.addr)
 	if(thismesh.primitives == nil) then print("No Primitives?"); return end 
 
@@ -178,7 +189,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 	
 	-- collate all primitives (we ignore material separate prims)
 	for pid = 0, thismesh.primitives_count do
-		local prim = cgltf.get_mesh_primitive(thismesh.addr, pid)
+		local prim = cgltf.get_mesh_primitive(model.data, thismesh.addr, pid)
 
 		local verts = nil
 		local uvs = nil
@@ -188,10 +199,13 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		local indices = nil
 		
 		local itype = buffer.VALUE_TYPE_UINT16
-
+		local accessor = nil
+		
 		if(acc_idx) then 
-			local accessor = cgltf.get_accessor(model.data, acc_idx)
+			accessor = cgltf.get_accessor(model.data, acc_idx)
 			local bv = accessor.buffer_view
+			local bvobj = cgltf.get_buffer_view(bv)
+			print(bvobj.size, bvobj.stride, bvobj.offset, bvobj.type)
 			local ctype = accessor.component_type
 			-- Indices specific - this is default dataset for gltf (I think)
 			if(ctype == cgltf_component_type_r_32u) then 
@@ -214,7 +228,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		else 
 			print("[Error] No indices.")
 			-- No indices generate a tristrip from position count
-			local posidx = prim.attributes["POSITION"]
+			local posidx = prim.attributes[cgltf_attribute_type.position]
 			-- Leave indices nil. The pipeline builder will use triangles by default
 
 			-- geomextension.buildindicestotable( 0, posidx.count, 1, indices)
@@ -222,52 +236,51 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 
 		-- Get position accessor
 		local aabb = nil
-		local pos_attrib = prim.attributes["POSITION"]
-		if(pos_attrib) then 
+		local pos_attrib = prim.attributes[cgltf_attribute_type.position]
+		if(pos_attrib) then 						
 			local bv = pos_attrib.data.buffer_view
+			local bvobj = cgltf.get_buffer_view(bv)
 			buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
-			local length = tonumber(bv[0].size)
-			local float_count = length / ffi.sizeof("float")
+			local length = tonumber(bvobj.size)
+			local float_count = length / 4
 			if(model.counted[pos_attrib] == nil) then
 				model.stats.vertices = model.stats.vertices + float_count / 3
 				model.counted[pos_attrib] = true
 			end
 
-			-- Get positions (or verts) 
-			verts = ffi.new("float[?]", float_count)
-			ffi.copy(verts, buffer_data, length)
+			verts = cgltf.get_buffer_view_vertex_data(bv)
 
 			-- geomextension.setdataindexfloatstotable( buffer_data, verts, indices, 3)
 			local pos_acc = pos_attrib.data
-			local pmin = hmm.HMM_Vec3(pos_acc.min[0], pos_acc.min[1], pos_acc.min[2])
-			local pmax = hmm.HMM_Vec3(pos_acc.max[0], pos_acc.max[1], pos_acc.max[2]) 
+			local pmin =vmath.vector3(pos_acc.min[0], pos_acc.min[1], pos_acc.min[2])
+			local pmax =vmath.vector3(pos_acc.max[0], pos_acc.max[1], pos_acc.max[2]) 
 			aabb = calcAABB( aabb, pmin, pmax )
 		end
 
 		-- Get uvs accessor
-		local tex_attrib = prim.attributes["TEXCOORD_0"]
+		local tex_attrib = prim.attributes[cgltf_attribute_type.texcoord]
 		if(tex_attrib) then 
 			local bv = tex_attrib.data.buffer_view
+			local bvobj = cgltf.get_buffer_view(bv)			
 			buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
-			local length = tonumber(bv[0].size)
+			local length = tonumber(bvobj.size)
 
-			uvs = ffi.new("float[?]", length / ffi.sizeof("float"))
-			ffi.copy(uvs, buffer_data, length)
+			uvs = cgltf.get_buffer_view_vertex_data(bv)
 			-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
 		end 
 
 		-- Get normals accessor
-		local norm_attrib = prim.attributes["NORMAL"]
+		local norm_attrib = prim.attributes[cgltf_attribute_type.normal]
 		if(norm_attrib) then 
 			local bv = norm_attrib.data.buffer_view
+			local bvobj = cgltf.get_buffer_view(bv)
 			buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
-			local length = tonumber(bv[0].size)
+			local length = tonumber(bvobj.size)
 
-			normals = ffi.new("float[?]", length/ ffi.sizeof("float"))
-			ffi.copy(normals, buffer_data, length)			
+			normals = cgltf.get_buffer_view_vertex_data(bv)		
 			-- geomextension.setdataindexfloatstotable( buffer_data, normals, indices, 3)
 		end 
 
@@ -285,13 +298,18 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 
 		-- Make a submesh for each primitive. This is kinda bad, but.. well.
 		-- print(gochildname)
-		local primname = fmt( "%s_prim_%s", ffi.string(gochildname), tostring(pid) )
-		prim.primname = ffi.string(gochildname)
+		local primname = fmt( "%s_prim_%s", tostring(gochildname), tostring(pid) )
+		prim.primname = tostring(gochildname)
 		local primgo = gameobject.create( nil, primname )
-		local primmesh = ffi.string(gameobject.goname(primgo)).."_temp"
+		local primmesh = tostring(gameobject.goname(primgo)).."_temp"
 		prim.primmesh = primmesh
+		
 		prim.transform = thisnode.transform
-		prim.index_count = tonumber(acc_idx.count)
+		prim.pos = thisnode.pos
+		prim.rot = thisnode.rot
+		prim.scl = thisnode.scl
+		
+		prim.index_count = accessor.count
 
 		if(indices) then 
 
@@ -305,7 +323,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			}
 
 			model.stats.polys = model.stats.polys + primdata.icount / 3
-			prim.mesh_buffers = geom:makeMesh( primmesh, primdata )
+			prim.mesh_buffers = geom:makeMesh( primmesh, primdata, pid )
 			if(prim.mesh_buffers) then 
 
 				prim.geom = geom:makeGeom(primmesh, prim, prim.mesh_buffers)
@@ -348,10 +366,9 @@ function gltfloader:makeNodeMeshes( model, parent, node )
 
 	local gochildname = gameobject.goname(gochild)
 	thisnode.goname = gochildname
-	
+		
 	--print("Name:", gomeshname)	
 	if(thisnode.mesh) then 
-		
 		-- Temp.. 
 		gltfloader:processdata( model, gochildname, thisnode, parent )
 		gltfloader:processmaterials( model, gochildname, thisnode )	
@@ -359,12 +376,12 @@ function gltfloader:makeNodeMeshes( model, parent, node )
 
 	-- Try children
 	local rot = thisnode["rotation"]
-	if(rot) then gameobject.set_rotation(gochild, hmm.HMM_Quaternion(rot[1], rot[2], rot[3], rot[4])) end
+	if(rot) then gameobject.set_rotation(gochild, vmath.quat(rot[1], rot[2], rot[3], rot[4])) end
 	local trans = thisnode["translation"]
-	if(trans) then gameobject.set_position(gochild, hmm.HMM_Vec3(trans[1], trans[2], trans[3])) end
+	if(trans) then gameobject.set_position(gochild,vmath.vector3(trans[1], trans[2], trans[3])) end
 
 	local scale = thisnode["scale"]
-	if(scale) then gameobject.set_scale(gochild, hmm.HMM_Vec3(math.abs(scale[1]), math.abs(scale[2]), math.abs(scale[3])) ) end
+	if(scale) then gameobject.set_scale(gochild,vmath.vector3(math.abs(scale[1]), math.abs(scale[2]), math.abs(scale[3])) ) end
 	
 	-- Parent this mesh to the incoming node 
 	gameobject.set_parent(gochild, parent)
@@ -382,7 +399,7 @@ end
 -- Load images: This is horribly slow at the moment. Will improve.
 
 function gltfloader:loadimages( model, primmesh, bcolor, tid )
-	
+
 	if(bcolor and bcolor.texture and bcolor.texture.source) then 
 		tid = tid or 0
 		-- Load in any images 
@@ -415,6 +432,23 @@ end
 -- --------------------------------------------------------------------------------------------------------
 -- This creates a world transform for each node. Not sure I like this (was copied from sokol cgltf example)
 
+local function get_posrotscl( node )
+	local translate = vmath.vector3()
+	if(node.has_translation == 1) then 
+		translate = vmath.vector3(node.translation[0], node.translation[1], node.translation[2])
+	end
+	local rotate = vmath.quat()
+	if(node.has_rotation == 1) then 
+		rotate =  vmath.quat( node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3])
+	end
+	local scale = vmath.vector3(1.0, 1.0, 1.0)
+	if(node.has_scale == 1) then 
+		scale = vmath.vector3(node.scale[0], node.scale[1], node.scale[2])
+	end
+	return translate, rotate, scale
+end
+
+
 local lu = { "m00", "m01", "m02", "m03", "m10", "m11", "m12", "m13", "m20", "m21", "m22", "m23", "m30", "m31", "m32", "m33" }
 
 local function build_transform_for_gltf_node(node)
@@ -428,25 +462,25 @@ local function build_transform_for_gltf_node(node)
 		for i=0, 15 do tform[lu[i+1]] = node.matrix[i] end
         return parent_tform * tform
     else
-        local translate = vmath.vector3()
+        local translate = vmath.matrix4()
 		if(node.has_translation == 1) then 
-			translate = vmath.vector3(node.translation[0], node.translation[1], node.translation[2])
+			translate = vmath.matrix4_translation(vmath.vector3(node.translation[0], node.translation[1], node.translation[2]))
 		end
-		local rotate = vmath.quat()
+		local rotate = vmath.matrix4()
 		if(node.has_rotation == 1) then 
-			rotate = vmath.quat( node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3])
+			rotate =  vmath.matrix4_quat(vmath.quat( node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]))
 		end
-		local scale = vmath.vector3()
+		local scale = vmath.matrix4_scale(vmath.vector3(1.0, 1.0, 1.0))
 		if(node.has_scale == 1) then 
-			scale = vmath.vector3(node.scale[0], node.scale[1], node.scale[2])
+			scale = vmath.matrix4_scale(vmath.vector3(node.scale[0], node.scale[1], node.scale[2]))
 		end
-		local local_tform = vmath.matrix4() -- hmm.HMM_MultiplyMat4(translate, hmm.HMM_MultiplyMat4(rotate, scale))
+		local local_tform = translate * (rotate * scale)
 
         return parent_tform * local_tform
     end
 end
 
--- ----------hmm.----------------------------------------------------------------------------------------------
+-- --------------------------------------------------------------------------------------------------------
 
 local function get_addr(addr)
 	local hex = string.match(tostring(addr), "userdata: (.+)")
@@ -504,9 +538,8 @@ function gltf_parse_materials(model)
 	model.materials_map = {}
 	
 	local num_materials =  cgltf.get_materials_count(model.data)
-	pprint(num_materials)
 	for i = 0, num_materials - 1 do
-		local gltf_mat = cgltf.get_material(model.data, i)
+		local gltf_mat = cgltf.get_material_index(model.data, i)
         local scene_mat = {}
         scene_mat.is_metallic = gltf_mat.has_pbr_metallic_roughness
         if (scene_mat.is_metallic == 1) then
@@ -554,12 +587,12 @@ function gltf_parse_meshes(model)
 	model.scene.num_meshes = cgltf.get_meshes_count(model.data)
     for mesh_index = 0, model.scene.num_meshes-1 do
 		local gltf_mesh = cgltf.get_mesh_index(model.data, mesh_index)
-
-		local mesh = { primitives = {} }
+		local mesh = utils.deepcopy(gltf_mesh)
+		mesh.primitives = {}
         mesh.first_primitive = 1
         mesh.num_primitives = gltf_mesh.primitives_count
 		for prim_index = 0,  mesh.num_primitives-1 do
-			local gltf_prim = cgltf.get_mesh_primitive(gltf_mesh.addr, prim_index)
+			local gltf_prim = cgltf.get_mesh_primitive(model.data, gltf_mesh.addr, prim_index)
 			local mat_handle = get_addr(gltf_prim.material)
             local prim = {
 				prim = gltf_prim,
@@ -575,6 +608,7 @@ function gltf_parse_meshes(model)
 			end
 
 			tinsert( mesh.primitives, prim )
+			print(prim_index)
         end 
 		model.stats.primitives = model.stats.primitives + mesh.num_primitives
 		model.meshes_map[get_addr(gltf_mesh.addr)] = mesh
@@ -595,10 +629,10 @@ local function gltf_parse_nodes(model, node)
     end
 
 	if (get_addr(node.mesh)) then 
-		pprint(node.mesh)
 		local newnode = cgltf.get_mesh(gltf, node.mesh)
-		-- newnode.mesh = model.meshes_map[get_addr(node.mesh)]
+		newnode.mesh = model.meshes_map[get_addr(node.mesh)]
 		newnode.transform = build_transform_for_gltf_node(node)
+		newnode.pos, newnode.rot, newnode.scl = get_posrotscl(node)
 		tinsert(model.scene.nodes, newnode)
 	end
 	model.stats.nodes = model.stats.nodes + 1 
