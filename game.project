@@ -9,7 +9,7 @@ width = 960
 height = 640
 
 [project]
-title = cgltf_lib
+title = cgltf
 publisher = Kakutai Pty Ltd
 developer = David Lannan
 

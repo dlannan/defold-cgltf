@@ -1,44 +1,93 @@
-local model1 = "cgltf_lib/test_data/BoxTextured/glTF/BoxTextured.gltf"
-local model2 = "cgltf_lib/test_data/Box/glTF-Binary/Box.glb"
+local model1 = "test_data/BoxTextured/glTF/BoxTextured.gltf"
+local model2 = "test_data/Box/glTF-Binary/Box.glb"
+
+local geom          = require("gltfloader.geometry-utils")
+local gltfloader    = require("gltfloader.gltfloader")
+
+local tinsert 		= table.insert
+
+-------------------------------------------------------------------------------------------
+local meshes		= {}
+
+-------------------------------------------------------------------------------------------
+
+local function fileparts( path )
+	return string.match(path, "^(.-[\\/])([^\\/]-)%.([^\\/]+)$")
+end
+
+-------------------------------------------------------------------------------------------
+
+local function load_gltf(filename)
+
+	local dir, fname, extension = fileparts(filename)
+	local asset = {
+		path = "",
+		folder = dir,
+		name = fname,
+		asset = fname,
+		format = extension
+	}
+
+	-- print(asset.path)
+	-- print(asset.asset)
+	-- print(asset.folder)
+	-- print(asset.format)
+
+	local assetfilename = filename
+	local gltf_data = gltfloader:load_gltf( assetfilename, asset, nil )
+	return gltf_data
+end 
+
+-------------------------------------------------------------------------------------------
 
 function init(self)
 	msg.post(".", "acquire_input_focus")
 	msg.post("@render:", "clear_color", {color = vmath.vector4(0, 0, 0, 1)})
 	
 	timer.delay(0.5, false, function()
-		local ok = cgltf.open_file(model1)
-		print(cgltf.validate(model1)) 
+		local mesh1 = load_gltf(model1)
+		cgltf.cgltf_validate("BoxTex", mesh1.data)
+		tinsert(meshes, mesh1)
 
-		cgltf.process(model1)
-
-		local ok = cgltf.open_file(model2)
-		print(cgltf.validate(model2)) 
-
-		cgltf.process(model2)
+		local mesh2 = load_gltf(model2)
+		cgltf.cgltf_validate("Box", mesh2.data)
+		tinsert(meshes, mesh2)
 	end)
 end
+
+-------------------------------------------------------------------------------------------
 
 function final(self)
 	-- Add finalization code here
 	-- Remove this function if not needed
 end
 
+-------------------------------------------------------------------------------------------
+
 function update(self, dt)
 	-- Add update code here
 	-- Remove this function if not needed
 end
+
+-------------------------------------------------------------------------------------------
 
 function on_message(self, message_id, message, sender)
 	-- Add message-handling code here
 	-- Remove this function if not needed
 end
 
+-------------------------------------------------------------------------------------------
+
 function on_input(self, action_id, action)
 	-- Add input-handling code here
 	-- Remove this function if not needed
 end
 
+-------------------------------------------------------------------------------------------
+
 function on_reload(self)
 	-- Add reload-handling code here
 	-- Remove this function if not needed
 end
+
+-------------------------------------------------------------------------------------------
