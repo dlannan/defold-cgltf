@@ -52,7 +52,6 @@ end
 function geom:makeGeom(name, prim, mesh)
 
 	-- Gen a gameobject from the factory, and then assign it all.. return generated uri.
-
 	local newgeom = {}
 	newgeom.transform 		= prim.transform
 	newgeom.id 				= factory.create(FACTORY_URI, prim.pos, prim.rot, nil, prim.scl)
@@ -76,7 +75,6 @@ function geom:makeMesh( goname, primdata, pid )
 	local normals 	= primdata.normals
 	local aabb 		= primdata.aabb
 
-	print("---> Making Mesh")
 	if(verts == nil) then
 		print("[Error geom:makeMesh] No valid vertices?")
 		return nil

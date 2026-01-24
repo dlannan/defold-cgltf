@@ -200,7 +200,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		
 		local itype = buffer.VALUE_TYPE_UINT16
 		local accessor = nil
-		
+
 		if(acc_idx) then 
 			accessor = cgltf.get_accessor(model.data, acc_idx)
 			local bv = accessor.buffer_view
@@ -234,55 +234,53 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			-- geomextension.buildindicestotable( 0, posidx.count, 1, indices)
 		end
 
-		-- Get position accessor
 		local aabb = nil
-		local pos_attrib = prim.attributes[cgltf_attribute_type.position]
-		if(pos_attrib) then 						
-			local bv = pos_attrib.data.buffer_view
-			local bvobj = cgltf.get_buffer_view(bv)
-			buffer_data = cgltf.cgltf_buffer_view_data(bv)
+		for i, attrib in ipairs(prim.attributes) do
+			-- Get position accessor
+			
+			if(attrib.type == cgltf_attribute_type.position) then 						
+				local bv = attrib.data.buffer_view
+				local bvobj = cgltf.get_buffer_view(bv)
+				buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
-			local length = tonumber(bvobj.size)
-			local float_count = length / 4
-			if(model.counted[pos_attrib] == nil) then
-				model.stats.vertices = model.stats.vertices + float_count / 3
-				model.counted[pos_attrib] = true
-			end
+				local length = tonumber(bvobj.size)
+				local float_count = length / 4
+				if(model.counted[attrib] == nil) then
+					model.stats.vertices = model.stats.vertices + float_count / 3
+					model.counted[attrib] = true
+				end
 
-			verts = cgltf.get_buffer_view_vertex_data(bv)
+				verts = cgltf.get_buffer_view_vertex_data(bv)
 
-			-- geomextension.setdataindexfloatstotable( buffer_data, verts, indices, 3)
-			local pos_acc = pos_attrib.data
-			local pmin =vmath.vector3(pos_acc.min[0], pos_acc.min[1], pos_acc.min[2])
-			local pmax =vmath.vector3(pos_acc.max[0], pos_acc.max[1], pos_acc.max[2]) 
-			aabb = calcAABB( aabb, pmin, pmax )
+				-- geomextension.setdataindexfloatstotable( buffer_data, verts, indices, 3)
+				local pos_acc = attrib.data
+				local pmin =vmath.vector3(pos_acc.min[1], pos_acc.min[2], pos_acc.min[3])
+				local pmax =vmath.vector3(pos_acc.max[1], pos_acc.max[2], pos_acc.max[3]) 
+				aabb = calcAABB( aabb, pmin, pmax )
+
+			-- Get uvs accessor
+		elseif(attrib.type == cgltf_attribute_type.texcoord) then 
+				local bv = attrib.data.buffer_view
+				local bvobj = cgltf.get_buffer_view(bv)			
+				buffer_data = cgltf.cgltf_buffer_view_data(bv)
+
+				local length = tonumber(bvobj.size)
+
+				uvs = cgltf.get_buffer_view_vertex_data(bv)
+				-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
+			
+			-- Get normals accessor
+		elseif(attrib.type == cgltf_attribute_type.normal) then 
+				local bv = attrib.data.buffer_view
+				local bvobj = cgltf.get_buffer_view(bv)
+				buffer_data = cgltf.cgltf_buffer_view_data(bv)
+
+				local length = tonumber(bvobj.size)
+
+				normals = cgltf.get_buffer_view_vertex_data(bv)		
+				-- geomextension.setdataindexfloatstotable( buffer_data, normals, indices, 3)
+			end 
 		end
-
-		-- Get uvs accessor
-		local tex_attrib = prim.attributes[cgltf_attribute_type.texcoord]
-		if(tex_attrib) then 
-			local bv = tex_attrib.data.buffer_view
-			local bvobj = cgltf.get_buffer_view(bv)			
-			buffer_data = cgltf.cgltf_buffer_view_data(bv)
-
-			local length = tonumber(bvobj.size)
-
-			uvs = cgltf.get_buffer_view_vertex_data(bv)
-			-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
-		end 
-
-		-- Get normals accessor
-		local norm_attrib = prim.attributes[cgltf_attribute_type.normal]
-		if(norm_attrib) then 
-			local bv = norm_attrib.data.buffer_view
-			local bvobj = cgltf.get_buffer_view(bv)
-			buffer_data = cgltf.cgltf_buffer_view_data(bv)
-
-			local length = tonumber(bvobj.size)
-
-			normals = cgltf.get_buffer_view_vertex_data(bv)		
-			-- geomextension.setdataindexfloatstotable( buffer_data, normals, indices, 3)
-		end 
 
 		if(acc_idx) then 
 			-- Reset indicies, because our buffers are all aligned!
@@ -459,7 +457,7 @@ local function build_transform_for_gltf_node(node)
 
     if node.has_matrix == true then
 		local tform = vmath.matrix4()
-		for i=0, 15 do tform[lu[i+1]] = node.matrix[i] end
+		for i=0, 15 do tform[lu[i+1]] = node.matrix[i+1] end
         return parent_tform * tform
     else
         local translate = vmath.matrix4()
@@ -602,8 +600,7 @@ function gltf_parse_meshes(model)
 				attributes = {},
 			}
 			local attrib_count = tonumber(gltf_prim.attributes_count)
-			for i=0, attrib_count-1 do
-				local attrib = gltf_prim.attributes[i]
+			for i, attrib in ipairs(gltf_prim.attributes) do
 				prim.attributes[tostring(attrib.name)] = attrib
 			end
 

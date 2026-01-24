@@ -71,28 +71,44 @@ mesh.create_buffer     = function(name, buffers, pid)
     local stride      = 0
     local attribs     = {}
     local float_size  = 4
-    local attribsize  = 0
+    local attribsize  = 3
 
     if(buffers.vertices) then 
         
         vertcount = utils.tcount(buffers.vertices) / 3
-        stride = 3
-        tinsert(attribs, { offset = offset, name = "position", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.vertices })
+        tinsert(attribs, { 
+            name = "position", 
+            count = 3, 
+            type = buffer.VALUE_TYPE_FLOAT32, 
+            data = buffers.vertices 
+        })
 
         if(buffers.uvs) then 
-            stride = stride + 2
-            attribsize = attribsize + 3 * float_size
-            tinsert(attribs, { offset = offset, name = "texcoord", count = 2, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.uvs })
+            attribsize = attribsize + 3
+            tinsert(attribs, { 
+                name = "texcoord", 
+                count = 2, 
+                type = buffer.VALUE_TYPE_FLOAT32, 
+                data = buffers.uvs 
+            })
         end
         if(buffers.normals) then 
-            stride = stride + 3
-            attribsize = attribsize + 3 * float_size
-            tinsert(attribs, { offset = offset, name = "normal", count = 3, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.normals })
+            attribsize = attribsize + 3
+            tinsert(attribs, { 
+                name = "normal", 
+                count = 3, 
+                type = buffer.VALUE_TYPE_FLOAT32, 
+                data = buffers.normals 
+            })
         end
         if(buffers.colors) then 
-            stride = stride + 4
-            attribsize = attribsize + 4 * float_size
-            tinsert(attribs, { offset = offset, name = "color", count = 4, type = buffer.VALUE_TYPE_FLOAT32, data = buffers.colors })
+            attribsize = attribsize + 4
+            tinsert(attribs, { 
+                name = "color", 
+                count = 4, 
+                type = buffer.VALUE_TYPE_FLOAT32, 
+                data = buffers.colors 
+            })
         end
     end
 
@@ -126,23 +142,28 @@ mesh.create_buffer     = function(name, buffers, pid)
             })
         end
 
-        local datasize = buffers.icount * attribsize
-        if(buffers.icount == 0) then 
-            datasize = vertcount * attribsize * 3
+        local datasize = buffers.icount
+        if(datasize == 0) then 
+            datasize = vertcount *  3
         end
-
-        pprint(datasize)
         local buffer_handle = buffer.create(datasize, all_attribs)
 
         for i, v in ipairs(attribs) do
             local stream = buffer.get_stream(buffer_handle, hash(v.name))
             -- transfer vertex data to buffer
-            for bi, index in ipairs(buffers.indices) do
-                print(v.name, i, bi, index)
-                stream[bi+1] = tonumber(v.data[index])
-            end        
+            if(buffers.indices) then 
+                pprint("INDICIES: ", datasize)
+                for bi, index in ipairs(buffers.indices) do
+                    stream[bi] = tonumber(v.data[index])
+                end        
+            else 
+                pprint("VERTICES: ", datasize)
+                for bi = 0, vertcount -1 do
+                    stream[bi+1] = tonumber(v.data[bi])
+                end        
+            end
         end
-        local buffer_name = string.format("/mesh_buffer_%s_%03d.bufferc", name, pid)
+        local buffer_name = string.format("/mesh_buffer_%s_%03d.bufferc", name, pid or 1)
 
         local success, result = pcall(resource.get_buffer, buffer_name)
         local my_buffer = hash(buffer_name)
@@ -154,7 +175,7 @@ mesh.create_buffer     = function(name, buffers, pid)
         local buffer_desc           = {}
         buffer_desc.type         = "VERTEXBUFFER"
         buffer_desc.buffer       = my_buffer
-        buffer_desc.size         = vertcount * stride
+        buffer_desc.size         = datasize / attribsize
         buffer_desc.attribs      = attribs
         buffer_desc.label        = buffer_name
         buffs.vbuf = buffer_desc

@@ -222,9 +222,7 @@ static int lib_get_buffer_view_size(lua_State *L) {
 static int lib_get_buffer_view_index_data(lua_State *L) {
     cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
     int datasize = lua_tonumber(L, 2);
-    printf("Buffer Size: %d\n", datasize);
-
-    printf("BV Size: %d  BV Offset %d  BV Stride %d\n", (int)bv->size, (int)bv->offset, (int)bv->stride);
+    // printf("BV Size: %d  BV Offset %d  BV Stride %d\n", (int)bv->size, (int)bv->offset, (int)bv->stride);
     if(bv) {
         uint8_t *data = (uint8_t *)cgltf_buffer_view_data(bv);
         int count = bv->size;
@@ -345,7 +343,7 @@ static void addAccessor(lua_State *L, cgltf_data * data, cgltf_accessor *acc)
     lua_pushstring(L, "min");
     lua_newtable(L);    
     for(int i=0; i<16; i++) {
-        lua_pushinteger(L, i);
+        lua_pushinteger(L, i+1);
         lua_pushnumber(L, acc->min[i]);
         lua_settable(L, -3);
     }
@@ -354,7 +352,7 @@ static void addAccessor(lua_State *L, cgltf_data * data, cgltf_accessor *acc)
     lua_pushstring(L, "max");
     lua_newtable(L);    
     for(int i=0; i<16; i++) {
-        lua_pushinteger(L, i);
+        lua_pushinteger(L, i+1);
         lua_pushnumber(L, acc->max[i]);
         lua_settable(L, -3);
     }
@@ -598,7 +596,7 @@ static int lib_get_mesh_primitive(lua_State *L) {
     lua_newtable(L);
     for(int i=0; i<prim->attributes_count; i++) {
         cgltf_attribute attrib = prim->attributes[i];
-        lua_pushinteger(L, i);
+        lua_pushinteger(L, i+1);
         lua_newtable(L);
 
             lua_pushstring(L, "name" );
@@ -714,7 +712,7 @@ static void addNodeData(lua_State *L, cgltf_data *data, cgltf_node *node)
     lua_pushstring(L, "matrix");
     lua_newtable(L);    
     for(int i=0; i<16; i++) {
-        lua_pushinteger(L, i);
+        lua_pushinteger(L, i+1);
         lua_pushnumber(L, node->matrix[i]);
         lua_settable(L, -3);
     }
