@@ -132,9 +132,9 @@ mesh.create_buffer     = function(name, buffers, pid)
 
     if(buffers.vertices) then 
 
-        local all_attribs = {}
+        local buffer_attribs = {}
         for i,v in ipairs(attribs) do
-            tinsert(all_attribs,        
+            tinsert(buffer_attribs,        
             {
                 name  = hash(v.name),
                 type  = v.type,
@@ -142,27 +142,37 @@ mesh.create_buffer     = function(name, buffers, pid)
             })
         end
 
-        local datasize = buffers.icount
+        local datasize = buffers.icount * attribsize
         if(datasize == 0) then 
-            datasize = vertcount *  3
+            datasize = vertcount * attribsize
         end
-        local buffer_handle = buffer.create(datasize, all_attribs)
 
+        local buffer_handle = buffer.create(datasize, buffer_attribs)
         for i, v in ipairs(attribs) do
             local stream = buffer.get_stream(buffer_handle, hash(v.name))
-            -- transfer vertex data to buffer
+            -- transfer vertex data to buffer         
             if(buffers.indices) then 
-                pprint("INDICIES: ", datasize)
+                pprint("INDICIES: ", datasize, v.name)
                 for bi, index in ipairs(buffers.indices) do
-                    stream[bi] = tonumber(v.data[index])
-                end        
+                    out_id = (bi - 1) * v.count + 1
+                    in_id = (index - 1) * v.count + 1
+                    stream[out_id] = v.data[in_id]
+                    stream[out_id+1] = v.data[in_id + 1]
+                    if(v.count > 2) then 
+                        stream[out_id+2] = v.data[in_id + 2]
+                    end
+                    if(v.count > 3) then 
+                        stream[out_id+3] = v.data[in_id + 3]
+                    end
+                end       
             else 
-                pprint("VERTICES: ", datasize)
+                pprint("VERTICES: ", datasize, v.name)
                 for bi = 0, vertcount -1 do
-                    stream[bi+1] = tonumber(v.data[bi])
+                    stream[bi+1] = tonumber(v.data[bi+1])
                 end        
             end
         end
+               
         local buffer_name = string.format("/mesh_buffer_%s_%03d.bufferc", name, pid or 1)
 
         local success, result = pcall(resource.get_buffer, buffer_name)

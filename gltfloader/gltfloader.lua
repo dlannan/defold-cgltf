@@ -204,6 +204,8 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		if(acc_idx) then 
 			accessor = cgltf.get_accessor(model.data, acc_idx)
 			local bv = accessor.buffer_view
+			if(bv == nil) then return end 
+			
 			local bvobj = cgltf.get_buffer_view(bv)
 			print(bvobj.size, bvobj.stride, bvobj.offset, bvobj.type)
 			local ctype = accessor.component_type
@@ -243,14 +245,21 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 				local bvobj = cgltf.get_buffer_view(bv)
 				buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
-				local length = tonumber(bvobj.size)
+				local length = attrib.data.count
 				local float_count = length / 4
 				if(model.counted[attrib] == nil) then
 					model.stats.vertices = model.stats.vertices + float_count / 3
 					model.counted[attrib] = true
 				end
 
-				verts = cgltf.get_buffer_view_vertex_data(bv)
+				local tverts = cgltf.get_buffer_view_vertex_data(bv)
+				verts = {}
+				for i = 1, length do 
+					local pos = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 3)
+					tinsert(verts, pos[1])
+					tinsert(verts, pos[2])
+					tinsert(verts, pos[3])
+				end
 
 				-- geomextension.setdataindexfloatstotable( buffer_data, verts, indices, 3)
 				local pos_acc = attrib.data

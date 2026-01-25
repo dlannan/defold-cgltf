@@ -154,6 +154,28 @@ static int lib_cgltf_buffer_view_data(lua_State *L)
     return 1;
 }
 
+static int lib_cgltf_accessor_read_float(lua_State *L)
+{
+    cgltf_accessor * acc = (cgltf_accessor *)lua_touserdata(L, 1);
+    int index           = lua_tonumber(L, 2);
+    int count           = lua_tonumber(L, 3);
+    float *data = new float[count];
+    cgltf_bool result = cgltf_accessor_read_float(acc, index, data, count);
+    if(result == 1) {
+        lua_newtable(L);
+        for(int i=0; i<count; i++) {
+            lua_pushinteger(L, i+1);
+            lua_pushnumber(L, data[i]);
+            lua_settable(L, -3);
+        }
+        delete [] data;
+        return 1;
+    }
+    delete [] data;
+    lua_pushnil(L);
+    return 1;
+}
+
 static int lib_get_images_count(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     lua_pushnumber(L, data->images_count);
@@ -190,6 +212,10 @@ static int lib_get_image_bufferview(lua_State *L) {
 
 static int lib_get_buffer_view(lua_State *L) {
     cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
+    if(bv == nullptr) {
+        lua_pushnil(L);
+        return 1;
+    }
     
     lua_newtable(L);
 
@@ -230,8 +256,8 @@ static int lib_get_buffer_view_index_data(lua_State *L) {
         if(datasize == 1) {
             uint8_t *dataptr = data;
             for(int i=0; i<count; i++ ) {
-                lua_pushinteger(L, i);
-                lua_pushinteger(L, dataptr[i]);
+                lua_pushinteger(L, i+1);
+                lua_pushinteger(L, dataptr[i]+1);
                 lua_settable(L, -3);
             }
         }
@@ -240,8 +266,8 @@ static int lib_get_buffer_view_index_data(lua_State *L) {
             count = bv->size/2;  // Default is uint16
             uint16_t *dataptr = (uint16_t*)data;
             for(int i=0; i<count; i++ ) {
-                lua_pushinteger(L, i);
-                lua_pushinteger(L, (int)dataptr[i]);
+                lua_pushinteger(L, i+1);
+                lua_pushinteger(L, (int)dataptr[i]+1);
                 lua_settable(L, -3);
             }
         }
@@ -251,8 +277,8 @@ static int lib_get_buffer_view_index_data(lua_State *L) {
             uint32_t *dataptr = (uint32_t*)data;
             for(int i=0; i<count; i++)
             {
-                lua_pushinteger(L, i);
-                lua_pushinteger(L, dataptr[i]);
+                lua_pushinteger(L, i+1);
+                lua_pushinteger(L, dataptr[i]+1);
                 lua_settable(L, -3);
             }
         }
@@ -273,11 +299,12 @@ static int lib_get_buffer_view_vertex_data(lua_State *L) {
     if(bv) {
         uint8_t *data = (uint8_t *)cgltf_buffer_view_data(bv);
         int count = bv->size/4;
+        printf("Stride: %d\n", (int)bv->stride);
         lua_newtable(L);
         float *dataptr = (float *)data;
         for(int i=0; i<count; i++ ) {
-            lua_pushinteger(L, i);
-            lua_pushnumber(L, dataptr[i]);
+            lua_pushinteger(L, i+1);
+            lua_pushnumber(L, *dataptr++);
             lua_settable(L, -3);
         }
     }
@@ -290,6 +317,8 @@ static int lib_get_buffer_view_vertex_data(lua_State *L) {
 
 static void addAccessor(lua_State *L, cgltf_data * data, cgltf_accessor *acc)
 {
+    if(acc == nullptr) return; 
+
     lua_pushstring(L, "addr" );
     lua_pushlightuserdata(L, acc);
     lua_settable(L, -3);
@@ -775,6 +804,7 @@ static const luaL_reg Module_methods[] =
     {"cgltf_load_buffers", lib_cgltf_load_buffers},
     {"cgltf_validate", lib_cgltf_validate},
     {"cgltf_buffer_view_data", lib_cgltf_buffer_view_data},
+    {"cgltf_accessor_read_float", lib_cgltf_accessor_read_float},
     
     {"get_images_count", lib_get_images_count},
     {"get_image", lib_get_image},
