@@ -32,6 +32,6 @@ embedded_instances {
   "}\n"
   ""
   position {
-    z: 10.0
+    z: 4.0
   }
 }

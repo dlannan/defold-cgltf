@@ -52,15 +52,9 @@ end
 function geom:makeGeom(name, prim, mesh)
 
 	-- Gen a gameobject from the factory, and then assign it all.. return generated uri.
-	local newgeom = {}
-	newgeom.transform 		= prim.transform
-	newgeom.id 				= factory.create(FACTORY_URI, prim.pos, prim.rot, nil, prim.scl)
-	
-	local mesh_uri = msg.url(nil, newgeom.id, "mesh")
-	go.set(mesh_uri, "vertices", mesh.vbuf.buffer)
-	
-	-- bins.pass_add(newgeom.pass, newgeom.binid, true)
-	return newgeom.id
+	prim.geom	  = factory.create(FACTORY_URI, prim.pos, prim.rot, nil, prim.scl)
+	prim.mesh_uri = msg.url(nil, prim.geom, "mesh")
+	go.set(prim.mesh_uri, "vertices", mesh.vbuf.buffer)
 end
 
 ------------------------------------------------------------------------------------------------------------

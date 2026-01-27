@@ -84,9 +84,9 @@ mesh.create_buffer     = function(name, buffers, pid)
         })
 
         if(buffers.uvs) then 
-            attribsize = attribsize + 3
+            attribsize = attribsize + 2
             tinsert(attribs, { 
-                name = "texcoord", 
+                name = "texcoord0", 
                 count = 2, 
                 type = buffer.VALUE_TYPE_FLOAT32, 
                 data = buffers.uvs 
@@ -152,21 +152,14 @@ mesh.create_buffer     = function(name, buffers, pid)
             local stream = buffer.get_stream(buffer_handle, hash(v.name))
             -- transfer vertex data to buffer         
             if(buffers.indices) then 
-                pprint("INDICIES: ", datasize, v.name)
                 for bi, index in ipairs(buffers.indices) do
                     out_id = (bi - 1) * v.count + 1
                     in_id = (index - 1) * v.count + 1
-                    stream[out_id] = v.data[in_id]
-                    stream[out_id+1] = v.data[in_id + 1]
-                    if(v.count > 2) then 
-                        stream[out_id+2] = v.data[in_id + 2]
-                    end
-                    if(v.count > 3) then 
-                        stream[out_id+3] = v.data[in_id + 3]
+                    for c = 0, v.count -1 do 
+                        stream[out_id + c] = v.data[in_id + c]
                     end
                 end       
             else 
-                pprint("VERTICES: ", datasize, v.name)
                 for bi = 0, vertcount -1 do
                     stream[bi+1] = tonumber(v.data[bi+1])
                 end        

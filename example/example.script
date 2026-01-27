@@ -1,7 +1,8 @@
-local model1 = "test_data/BoxTextured/glTF/BoxTextured.gltf"
-local model2 = "test_data/Box/glTF-Binary/Box.glb"
--- local model3 = "test_data/SimpleMeshes/glTF/SimpleMeshes.gltf"
-local model3 = "test_data/DamagedHelmet/glTF/DamagedHelmet.gltf"
+-- local model = "test_data/BoxTextured/glTF/BoxTextured.gltf"
+-- local model = "test_data/Box/glTF-Binary/Box.glb"
+-- local model = "test_data/SimpleMeshes/glTF/SimpleMeshes.gltf"
+local model = "test_data/DamagedHelmet/glTF/DamagedHelmet.gltf"
+-- local model = "test_data/2CylinderEngine/glTF/2CylinderEngine.gltf"
 
 local geom          = require("gltfloader.geometry-utils")
 local gltfloader    = require("gltfloader.gltfloader")
@@ -47,15 +48,15 @@ function init(self)
 	msg.post("@render:", "clear_color", {color = vmath.vector4(0, 0, 1, 1)})
 	
 	timer.delay(0.5, false, function()
-		local mesh3 = load_gltf(model3)
-		cgltf.cgltf_validate("BoxTex", mesh3.data)
-		tinsert(meshes, mesh3)
+		local mesh = load_gltf(model)
+		cgltf.cgltf_validate("BoxTex", mesh.data)
+		tinsert(meshes, mesh)
 		
 -- 		local mesh2 = load_gltf(model2)
 -- 		cgltf.cgltf_validate("Box", mesh2.data)
 -- 		tinsert(meshes, mesh2)
 -- 
-		for i,v in ipairs(mesh3.all_geom) do
+		for i,v in ipairs(mesh.all_geom) do
 			go.animate(v, "euler.x", go.PLAYBACK_LOOP_PINGPONG, 360, go.EASING_LINEAR, 10)
 		end
 	end)

@@ -73,11 +73,11 @@ static int DumpGLTFInfo(lua_State* L)
     return 0;
 }
 
-static void make_name( char *group, char * name, int id )
+static void make_name( char ** name, char *group, int id )
 {
-    name = new char[64];
-    memset(name, 0, 64);
-    sprintf(name, "%s%03d", group, id );
+    *name = new char[64];
+    memset(*name, 0, 64);
+    sprintf(*name, "%s%03d", group, id );
 }
 
 // Open a gltf file
@@ -146,8 +146,8 @@ static int lib_cgltf_buffer_view_data(lua_State *L)
 {
     cgltf_buffer_view * bv = (cgltf_buffer_view *)lua_touserdata(L, 1);
     if(bv) {
-        uint8_t *data = (uint8_t *)cgltf_buffer_view_data(bv);
-        lua_pushlightuserdata(L, data);
+        char *data = (char *)cgltf_buffer_view_data(bv);
+        lua_pushlstring (L, data, bv->size);
         return 1;
     }
     lua_pushnil(L);
@@ -161,20 +161,37 @@ static int lib_cgltf_accessor_read_float(lua_State *L)
     int count           = lua_tonumber(L, 3);
     float *data = new float[count];
     cgltf_bool result = cgltf_accessor_read_float(acc, index, data, count);
-    if(result == 1) {
-        lua_newtable(L);
-        for(int i=0; i<count; i++) {
-            lua_pushinteger(L, i+1);
-            lua_pushnumber(L, data[i]);
-            lua_settable(L, -3);
-        }
-        delete [] data;
-        return 1;
+    lua_newtable(L);
+    for(int i=0; i<count; i++) {
+        lua_pushinteger(L, i+1);
+        lua_pushnumber(L, data[i]);
+        lua_settable(L, -3);
     }
     delete [] data;
-    lua_pushnil(L);
     return 1;
 }
+
+static int lib_cgltf_accessor_read_float_all(lua_State *L)
+{
+    cgltf_accessor * acc = (cgltf_accessor *)lua_touserdata(L, 1);
+    int count           = lua_tonumber(L, 2);
+
+    lua_newtable(L);
+    int index = 1;
+    for (int i=0; i<acc->count; i++) {
+        float *data = new float[count];
+        cgltf_bool result = cgltf_accessor_read_float(acc, i, data, count);
+        for(int c=0; c<count; c++) {
+            lua_pushinteger(L, index++);
+            lua_pushnumber(L, data[c]);
+            lua_settable(L, -3);
+        }
+        delete [] data;        
+    }
+
+    return 1;
+}
+
 
 static int lib_get_images_count(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
@@ -182,7 +199,7 @@ static int lib_get_images_count(lua_State *L) {
     return 1;
 }
 
-static int lib_get_image(lua_State *L) {
+static int lib_get_image_index(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     int i = lua_tonumber(L, 2);
     cgltf_image * image = &data->images[i];
@@ -191,9 +208,14 @@ static int lib_get_image(lua_State *L) {
 }
 
 static int lib_get_image_name(lua_State *L) {
-    cgltf_image * img = (cgltf_image *)lua_touserdata(L, 1);
+    cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
+    cgltf_image * img = (cgltf_image *)lua_touserdata(L, 2);
 
     char *name = img->name;
+    if(name == nullptr) {
+        int img_id = cgltf_image_index(data, img);
+        make_name(&name, "image_", img_id);
+    }    
     lua_pushstring(L, name);
     return 1;
 }
@@ -326,7 +348,7 @@ static void addAccessor(lua_State *L, cgltf_data * data, cgltf_accessor *acc)
     char *name = acc->name;
     if(name == nullptr) {
         int acc_id = cgltf_accessor_index(data, acc);
-        make_name(name, "acc_", acc_id);
+        make_name(&name, "acc_", acc_id);
     }
 
     lua_pushstring(L, "name" );
@@ -394,7 +416,7 @@ static int lib_get_textures_count(lua_State *L) {
     return 1;
 }
 
-static int lib_get_texture(lua_State *L) {
+static int lib_get_texture_index(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     int i = lua_tonumber(L, 2);
     cgltf_texture * tex = &data->textures[i];
@@ -430,7 +452,7 @@ static void fetchMaterial(lua_State *L, cgltf_data *data, cgltf_material *mat)
     char *name = mat->name;
     if(name == nullptr) {
         int mat_id = cgltf_material_index(data, mat);
-        make_name(name, "mat_", mat_id);
+        make_name(&name, "mat_", mat_id);
     }
 
     lua_pushstring(L, "name" );
@@ -560,7 +582,7 @@ static void addMesh(lua_State *L, cgltf_data *data, cgltf_mesh *mesh)
     char *name = mesh->name;
     if(name == nullptr) {
         int mesh_id = cgltf_mesh_index(data, mesh);
-        make_name(name, "mesh_", mesh_id);
+        make_name(&name, "mesh_", mesh_id);
     }
 
     lua_pushstring(L, "name" );
@@ -667,7 +689,7 @@ static void addNodeData(lua_State *L, cgltf_data *data, cgltf_node *node)
     char *name = node->name;
     if(name == nullptr) {
         int node_id = cgltf_node_index(data, node);
-        make_name(name, "node_", node_id);
+        make_name(&name, "node_", node_id);
     }
 
     lua_pushstring(L, "name" );
@@ -805,9 +827,10 @@ static const luaL_reg Module_methods[] =
     {"cgltf_validate", lib_cgltf_validate},
     {"cgltf_buffer_view_data", lib_cgltf_buffer_view_data},
     {"cgltf_accessor_read_float", lib_cgltf_accessor_read_float},
+    {"cgltf_accessor_read_float_all", lib_cgltf_accessor_read_float_all },
     
     {"get_images_count", lib_get_images_count},
-    {"get_image", lib_get_image},
+    {"get_image_index", lib_get_image_index},
     {"get_image_name", lib_get_image_name},
     {"get_image_uri", lib_get_image_uri},
     {"get_image_buffer_view", lib_get_image_bufferview},
@@ -818,7 +841,7 @@ static const luaL_reg Module_methods[] =
     {"get_buffer_view_vertex_data", lib_get_buffer_view_vertex_data},
 
     {"get_textures_count", lib_get_textures_count},
-    {"get_texture", lib_get_texture},
+    {"get_texture_index", lib_get_texture_index},
     {"get_texture_name", lib_get_texture_name},
     {"get_texture_image", lib_get_texture_image},
 

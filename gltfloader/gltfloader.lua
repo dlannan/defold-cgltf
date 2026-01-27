@@ -12,9 +12,8 @@ local imageutils 	= require("gltfloader.image-utils")
 
 local b64 			= require("gltfloader.base64")
 local utils			= require("gltfloader.utils")
--- local hmm      		= require("hmm")
+local struct 	 	= require("gltfloader.struct")
 
-local binmgr 		= require("gltfloader.geometry.bins")
 
 local fmt 			= string.format
 
@@ -58,59 +57,63 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 	-- Get indices from accessor 
 	local thismesh = thisnode.mesh
 	local prims = thismesh.primitives	
-
 	if(prims == nil) then print("No Primitives?"); return end 
+	
 	-- Iterate primitives in this mesh
 	for k,prim in pairs(prims) do
 
 		-- If it has a material, load it, and set the material 
 		if(prim.material) then 
-
 			local mat = prim.material
-			local pbrmetallicrough = mat.pbrMetallicRoughness 
+			local mprim = thisnode.prims[k]
 			local primmesh = { mesh = prim.primmesh, name = prim.primname }
 
-			if(mat.alphaMode) then 
+			if(mat.alpha_mode) then 
 				-- Set material tag to include mask (for predicate rendering!)
-				if(mat.alphaMode == "MASK") then 
+				if(mat.alpha_mode == 1) then -- MASK
 					-- local maskmat = go.get("/material#tempmask", "material")
 					-- go.set(prim.primmesh, "material", maskmat)
 				end
-				if(mat.alphaMode == "BLEND") then 
+				if(mat.alpha_mode == 2) then  -- BLEND
 					-- local maskmat = go.get("/material#tempmask", "material")
 					-- go.set(prim.primmesh, "material", maskmat)
 				end
 			end
 			
-			if (pbrmetallicrough) then 
-
-				if(pbrmetallicrough.baseColorFactor) then 
-					local bcolor = pbrmetallicrough.baseColorFactor
-					-- TODO: Material gen with base color setting
-					-- model.set_constant(prim.primmesh, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]) )
-				end 
-				
-				if(pbrmetallicrough.baseColorTexture) then 
-					local bcolor = pbrmetallicrough.baseColorTexture
-					gltfloader:loadimages( model, primmesh, bcolor, 0 )
-				end 
-
-				if(pbrmetallicrough.metallicRoughnessTexture) then 
-					local bcolor = pbrmetallicrough.metallicRoughnessTexture
-					gltfloader:loadimages( model, primmesh, bcolor, 1 )
-				end
-			end
-			local pbremissive = mat.emissiveTexture
-			if(pbremissive) then 
-				local bcolor = pbremissive
-				gltfloader:loadimages( model, primmesh, bcolor, 2 )
-			end
-			local pbrnormal = mat.normalTexture
-			if(pbrnormal) then  
-				local bcolor = pbrnormal
-				gltfloader:loadimages( model, primmesh, bcolor, 3 )
-			end
-
+			if(mat.base_color_factor) then 
+				local bcolor = mat.base_color_factor
+				local mesh_uri = msg.url(nil, prim.geom, "mesh")
+				model.set_constant(mesh_uri, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]) )
+			end 
+			
+			if(mat.base_color_tex) then 
+				local bcolor = mat.base_color_tex
+				bcolor = model.images[1]
+				gltfloader:loadimages( model, mprim, bcolor)
+			end 
+--  
+-- 			if(mat.metallic_roughness_tex) then 
+-- 				local bcolor = mat.metallic_roughness_tex
+-- 				gltfloader:loadimages( model, mprim, bcolor )
+-- 			end
+-- 
+-- 			local pbremissive = mat.emissive_tex
+-- 			if(pbremissive) then 
+-- 				local bcolor = pbremissive
+-- 				gltfloader:loadimages( model, mprim, bcolor )
+-- 			end
+-- 			local pbrnormal = mat.normal_tex
+-- 			if(pbrnormal) then  
+-- 				local bcolor = pbrnormal
+-- 				gltfloader:loadimages( model, mprim, bcolor )
+-- 			end
+-- 
+-- 			local occulusion_tex = mat.occulusion_tex
+-- 			if(occulusion_tex) then  
+-- 				local bcolor = occulusion_tex
+-- 				gltfloader:loadimages( model, mprim, bcolor )
+-- 			end
+			
 			if(mat.doubleSided == true) then 
 
 			end
@@ -185,7 +188,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 	local thismesh = cgltf.get_mesh(model.data, thisnode.mesh.addr)
 	if(thismesh.primitives == nil) then print("No Primitives?"); return end 
 
-	local buffer_data = nil
+	thisnode.prims = thisnode.prims or {}
 	
 	-- collate all primitives (we ignore material separate prims)
 	for pid = 0, thismesh.primitives_count do
@@ -212,17 +215,16 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			-- Indices specific - this is default dataset for gltf (I think)
 			if(ctype == cgltf_component_type_r_32u) then 
 				indices = cgltf.get_buffer_view_index_data(bv, 4)
-				-- geomextension.setdataintstotable( 0, , index_buffer_data, indices)
 				itype = buffer.VALUE_TYPE_UINT32
 				print("[Warning] 32 bit index buffer")
 			elseif(ctype == cgltf_component_type_r_32f) then 
 				print("TODO: Support float buffers")
 			elseif(ctype == cgltf_component_type_r_16u or ctype == cgltf_component_type_r_16) then 
 				indices = cgltf.get_buffer_view_index_data(bv, 2)
-				-- geomextension.setdatashortstotable( 0, accessor.count * 2, index_buffer_data, indices)
+				itype = buffer.VALUE_TYPE_UINT16
 			elseif(ctype == cgltf_component_type_r_8u or ctype == cgltf_component_type_r_8) then 
 				indices = cgltf.get_buffer_view_index_data(bv, 1)
-				-- geomextension.setdatabytestotable( 0, accessor.count, index_buffer_data, indices)
+				itype = buffer.VALUE_TYPE_UINT8
 				print("[Warning] 8 bit index buffer")
 			else 
 				print("[Error] Unhandled componentType: "..ctype)
@@ -241,9 +243,6 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			-- Get position accessor
 			
 			if(attrib.type == cgltf_attribute_type.position) then 						
-				local bv = attrib.data.buffer_view
-				local bvobj = cgltf.get_buffer_view(bv)
-				buffer_data = cgltf.cgltf_buffer_view_data(bv)
 
 				local length = attrib.data.count
 				local float_count = length / 4
@@ -252,7 +251,6 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 					model.counted[attrib] = true
 				end
 
-				local tverts = cgltf.get_buffer_view_vertex_data(bv)
 				verts = {}
 				for i = 1, length do 
 					local pos = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 3)
@@ -268,25 +266,32 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 				aabb = calcAABB( aabb, pmin, pmax )
 
 			-- Get uvs accessor
-		elseif(attrib.type == cgltf_attribute_type.texcoord) then 
-				local bv = attrib.data.buffer_view
-				local bvobj = cgltf.get_buffer_view(bv)			
-				buffer_data = cgltf.cgltf_buffer_view_data(bv)
+			elseif(attrib.type == cgltf_attribute_type.texcoord) then 
 
-				local length = tonumber(bvobj.size)
-
-				uvs = cgltf.get_buffer_view_vertex_data(bv)
+				local length = attrib.data.count
+				uvs = {}
+				-- uvs = cgltf.cgltf_accessor_read_float_all(attrib.data.addr, 2)
+				for i = 1, length do 
+					local uv = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 2)
+					tinsert(uvs, uv[1])
+					tinsert(uvs, uv[2])
+				end
+								
 				-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
 			
 			-- Get normals accessor
-		elseif(attrib.type == cgltf_attribute_type.normal) then 
-				local bv = attrib.data.buffer_view
-				local bvobj = cgltf.get_buffer_view(bv)
-				buffer_data = cgltf.cgltf_buffer_view_data(bv)
+			elseif(attrib.type == cgltf_attribute_type.normal) then 
 
-				local length = tonumber(bvobj.size)
+				local length = attrib.data.count
+				normals = {}
+				for i = 1, length do 
+					local normal = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 3)
+					tinsert(normals, normal[1])
+					tinsert(normals, normal[2])
+					tinsert(normals, normal[3])
+				end
 
-				normals = cgltf.get_buffer_view_vertex_data(bv)		
+				-- normals = cgltf.get_buffer_view_vertex_data(bv)		
 				-- geomextension.setdataindexfloatstotable( buffer_data, normals, indices, 3)
 			end 
 		end
@@ -305,16 +310,16 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 
 		-- Make a submesh for each primitive. This is kinda bad, but.. well.
 		-- print(gochildname)
-		local primname = fmt( "%s_prim_%s", tostring(gochildname), tostring(pid) )
-		prim.primname = tostring(gochildname)
-		local primgo = gameobject.create( nil, primname )
-		local primmesh = tostring(gameobject.goname(primgo)).."_temp"
-		prim.primmesh = primmesh
+		local primname 	= fmt( "%s_prim_%s", tostring(gochildname), tostring(pid) )
+		prim.primname 	= tostring(gochildname)
+		local primgo 	= gameobject.create( nil, primname )
+		local primmesh	= tostring(gameobject.goname(primgo)).."_temp"
+		prim.primmesh 	= primmesh
 		
-		prim.transform = thisnode.transform
-		prim.pos = thisnode.pos
-		prim.rot = thisnode.rot
-		prim.scl = thisnode.scl
+		prim.transform 	= thisnode.transform
+		prim.pos 		= thisnode.pos
+		prim.rot 		= thisnode.rot
+		prim.scl 		= thisnode.scl
 		
 		prim.index_count = accessor.count
 
@@ -333,7 +338,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			prim.mesh_buffers = geom:makeMesh( primmesh, primdata, pid )
 			if(prim.mesh_buffers) then 
 
-				prim.geom = geom:makeGeom(primmesh, prim, prim.mesh_buffers)
+				geom:makeGeom(primmesh, prim, prim.mesh_buffers)
 				tinsert(model.all_geom, prim.geom)
 				-- print("Added mesh buffer", prim.primmesh)
 			end
@@ -349,6 +354,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		-- go.set_rotation(vmath.quat(), primgo)
 		-- go.set_position(vmath.vector3(0,0,0), primgo)
 		-- go.set_parent( primmesh, gochildname )
+		thisnode.prims[pid] = prim
 	end
 end
 
@@ -405,22 +411,65 @@ end
 ------------------------------------------------------------------------------------------------------------
 -- Load images: This is horribly slow at the moment. Will improve.
 
-function gltfloader:loadimages( model, primmesh, bcolor, tid )
+function gltfloader:loadimages( model, prim, bcolor )
 
-	if(bcolor and bcolor.texture and bcolor.texture.source) then 
-		tid = tid or 0
+	local img = nil
+	if bcolor  then 
+		
 		-- Load in any images 
-		if(bcolor.texture.source.uri) then 
-			-- print("TID: "..tid.."   "..model.basepath..bcolor.texture.source.uri)
-			imageutils.loadimage(primmesh.mesh, model.basepath..bcolor.texture.source.uri, tid )
-		elseif(bcolor.texture.source.bufferView) then
-			-- print("TID: "..tid.."   "..bcolor.texture.source.name.."  "..bcolor.texture.source.mimeType)
-			local stringbuffer = bcolor.texture.source.bufferView:get()
-			imageutils.loadimagebuffer(primmesh.mesh, stringbuffer, tid )
+-- 		if(bcolor) then 
+-- 			-- print("TID: "..tid.."   "..model.basepath..bcolor.texture.source.uri)
+-- 			img = imageutils.loadimage(primmesh.mesh, model.basepath..bcolor.texture.source.uri, tid )
+-- 		elseif(bcolor.texture.source.bufferView) then
+-- 			-- print("TID: "..tid.."   "..bcolor.texture.source.name.."  "..bcolor.texture.source.mimeType)
+-- 			local stringbuffer = bcolor.texture.source.bufferView:get()
+-- 			img = imageutils.loadimagebuffer(primmesh.mesh, stringbuffer, tid )
+-- 
+-- 			-- imageutils.defoldbufferimage(primmesh.mesh, bytes, pnginfo, tid )		
+-- 		end
 
-			-- imageutils.defoldbufferimage(primmesh.mesh, bytes, pnginfo, tid )		
+		-- img = model.image_map[bcolor.id+1]
+		local count = 4 
+		if(bcolor.img.type == "rgb") then count = 3 end
+		local imgsize = bcolor.img.width * bcolor.img.height
+		local tbuffer = buffer.create(imgsize, { {name=hash(bcolor.img.type), type=buffer.VALUE_TYPE_FLOAT32, count=count} } )
+		local tstream = buffer.get_stream(tbuffer, hash(bcolor.img.type))
+
+		-- Fill the buffer stream with some float values
+		local imgbuffer = bcolor.img.buffer
+
+		-- pprint("IMAGE BUFFER LEN:", #imgbuffer, bcolor.img.height * bcolor.img.width * count, count)
+		-- TODO: Use Accessor? or 4bytes -> float?
+		local imagesize = bcolor.img.height * bcolor.img.width * count
+		for pos=0, imagesize - 1 do
+			local val = string.byte(imgbuffer,  pos + 1, pos + 2) / 255.0
+			tstream[pos+1] = val 
+		end
+		
+		local tparams = {
+			width          = bcolor.img.width,
+			height         = bcolor.img.height,
+			type           = graphics.TEXTURE_TYPE_2D,
+			format         = graphics.TEXTURE_FORMAT_RGBA32F,
+		}
+		if(count == 3) then tparams.format = graphics.TEXTURE_FORMAT_RGB32F end
+
+		local texture_name = string.format("/texture_%03d.texturec", bcolor.id)
+
+		local success, result = pcall(resource.get_texture, texture_name)
+		local my_texture = hash(texture_name)
+		if not success then
+			my_texture = resource.create_texture(texture_name, tparams, tbuffer)
+		end   
+		
+		bcolor.img.texture_id = my_texture
+		bcolor.img.tbuffer = tbuffer 
+		-- local temp = hash("/builtins/assets/images/logo/logo_blue_256.texturec")
+		if(prim and prim.geom) then 
+			go.set(prim.mesh_uri, "texture0", bcolor.img.texture_id)
 		end
 	end
+	return bcolor.img
 end
 
 ------------------------------------------------------------------------------------------------------------
@@ -502,22 +551,27 @@ function gltf_parse_images(model)
 	model.images = {}
 	local image_count = cgltf.get_images_count(model.data)
 	for i=0, image_count -1 do 
-		local img = cgltf.get_image(model.data, i)
+		local img = cgltf.get_image_index(model.data, i)
 		local addr = get_addr(img)
-		image_map[addr] = #model.images + 1
+		image_map[addr] = i+1
 		local image = nil
-		local imagename = cgltf.get_image_name(img)
+		local imagename = cgltf.get_image_name(model.data, img)
 		local img_uri = cgltf.get_image_uri(img)
-		if(img_uri ~= nil) then 
+		if(img_uri) then 
 			local filepath = model.basepath..tostring(img_uri)
-			image = imageutils.loadimage(imagename, filepath, i )
+			image = imageutils.loadimage(imagename, filepath, i+1 )
 		else 
 			local bv = cgltf.get_image_buffer_view(img)
 			local bvsize = cgltf.get_buffer_view_size(bv)
 			local bufptr = cgltf.cgltf_buffer_view_data(bv)
-			image = imageutils.loadimagebuffer(imagename, bufptr, bvsize, i )
+			image = imageutils.loadimagebuffer(imagename, bufptr, bvsize, i+1 )
+			pprint(image)
 		end
-		tinsert(model.images, image)
+		if(image) then 
+			model.images[i+1] = image
+		else
+			pprint(string.format("[Error] Failed to add image: %s  uri: %s",imagename, img_uri))
+		end
 		collectgarbage("collect")
 	end
 
@@ -526,7 +580,7 @@ function gltf_parse_images(model)
 	model.textures_map = {}
 	local textures_count = cgltf.get_textures_count(model.data)
 	for i = 0, textures_count-1 do
-		local tex = cgltf.get_texture(model.data, i)
+		local tex = cgltf.get_texture_index(model.data, i)
 		local tex_image = cgltf.get_texture_image(tex)
 		local img_id = image_map[get_addr(tex_image)]
 		local tex_img = model.images[img_id]
@@ -549,9 +603,9 @@ function gltf_parse_materials(model)
 		local gltf_mat = cgltf.get_material_index(model.data, i)
         local scene_mat = {}
         scene_mat.is_metallic = gltf_mat.has_pbr_metallic_roughness
-        if (scene_mat.is_metallic == 1) then
-            local src = gltf_mat.pbr_metallic_roughness
-			scene_mat.name = ffi.string(gltf_mat.name)
+        if (scene_mat.is_metallic == true) then
+			local src = gltf_mat
+			scene_mat.name = tostring(gltf_mat.name)
 			scene_mat.alpha_mode = gltf_mat.alpha_mode
 			scene_mat.alpha_cutoff = gltf_mat.alpha_cutoff
 
@@ -564,20 +618,12 @@ function gltf_parse_materials(model)
 				gltf_mat.emissive_factor[0], gltf_mat.emissive_factor[1], gltf_mat.emissive_factor[2],
 			}
 
-			local base_color_tex = model.textures_map[get_addr(src.base_color_texture.texture)]
-			local metallic_roughness_tex = model.textures_map[get_addr(src.metallic_roughness_texture.texture)]
-			local normal_tex = model.textures_map[get_addr(gltf_mat.normal_texture.texture)]
-			local occulusion_tex = model.textures_map[get_addr(gltf_mat.occlusion_texture.texture)]
-			local emissive_tex = model.textures_map[get_addr(gltf_mat.emissive_texture.texture)]
-
-            scene_mat.images = {
-                base_color 			= base_color_tex,
-                metallic_roughness 	= metallic_roughness_tex,
-                normal 				= normal_tex,
-                occlusion 			= occulusion_tex,
-                emissive 			= emissive_tex,
-            }
-        end 
+			scene_mat.base_color_tex = model.textures_map[get_addr(src.base_color_texture)]
+			scene_mat.metallic_roughness_tex = model.textures_map[get_addr(src.metallic_roughness_texture)]
+			scene_mat.normal_tex = model.textures_map[get_addr(gltf_mat.normal_texture)]
+			scene_mat.occulusion_tex = model.textures_map[get_addr(gltf_mat.occlusion_texture)]
+			scene_mat.emissive_tex = model.textures_map[get_addr(gltf_mat.emissive_texture)]
+		end 
 		model.materials_map[ get_addr(gltf_mat.addr) ] = scene_mat
 		tinsert(model.materials, scene_mat)
 	end
@@ -608,13 +654,11 @@ function gltf_parse_meshes(model)
 				type = gltf_prim.type,
 				attributes = {},
 			}
-			local attrib_count = tonumber(gltf_prim.attributes_count)
 			for i, attrib in ipairs(gltf_prim.attributes) do
 				prim.attributes[tostring(attrib.name)] = attrib
 			end
 
 			tinsert( mesh.primitives, prim )
-			print(prim_index)
         end 
 		model.stats.primitives = model.stats.primitives + mesh.num_primitives
 		model.meshes_map[get_addr(gltf_mesh.addr)] = mesh
@@ -743,54 +787,9 @@ function gltfloader:load_gltf( assetfilename, asset, disableaabb )
 	-- local states 	  = {}
 	-- -- TODO: Dodgy override for a material atm. Will change.
 
-	-- local prims       = {}
-
-	-- -- Collect meshes together for rendering
-	-- gltfloader:run_nodes( model , function( model, thisnode )
-	-- 	if(thisnode.mesh) then 
-	-- 		local mesh = thisnode.mesh
-	-- 		if(mesh.primitives) then 
-	-- 			for i, prim in ipairs(mesh.primitives) do 
-	-- 				if(prims[prim.primmesh] == nil and prim.mesh_buffers) then 
-    --         			prims[prim.primmesh] = { 
-	-- 						index_count = prim.mesh_buffers.count,
-	-- 						node = mesh, prim = prim, 
-	-- 						mesh = prim.mesh_buffers,
-	-- 						aabb = prim.aabb,
-	-- 						material = prim.material,
-	-- 						transform = thisnode.transform,
-	-- 					}
-	-- 				end
-	-- 			end 
-	-- 		end
-	-- 	end
-	-- end)
-
-	-- for k, prim in pairs(prims) do 
-	-- 	-- local geom_mesh = geom:GetMesh(prim.prim.primmesh)
-	-- 	local state_tbl = meshes.state(k, prim, prim.mesh, material)
-	-- 	local state = { 
-	-- 		pip = state_tbl.pip, 
-	-- 		bind = state_tbl.bind, 
-	-- 		alpha = state_tbl.alpha, 
-	-- 		count = prim.index_count,
-	-- 		transform = prim.transform,
-	-- 		base_color = prim.material.base_color or { 1, 1, 1, 1 },
-	-- 	}
-	-- 	tinsert(states, state)
-	-- 	local tfaabb = transformAABB(prim.aabb, prim.transform)
-	-- 	model.aabb = calcAABB(model.aabb, tfaabb.min, tfaabb.max)
-	-- end
-
 	if(model.aabb == nil) then 
 		print("[Error] Model has no aabb: "..assetfilename)
 	end
-
-	-- model.states_tbl = states
-
-	-- This releases cgltf data
-	-- model.data = nil -- need this for validation!!
-
 	return model
 end
 

@@ -13,6 +13,7 @@ title = cgltf
 publisher = Kakutai Pty Ltd
 developer = David Lannan
 minimum_log_level = 0
+custom_resources = test_data/
 
 [library]
 include_dirs = myextension
