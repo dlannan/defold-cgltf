@@ -54,7 +54,6 @@ function geom:makeGeom(name, prim, mesh)
 	-- Gen a gameobject from the factory, and then assign it all.. return generated uri.
 	prim.geom	  = factory.create(FACTORY_URI, prim.pos, prim.rot, nil, prim.scl)
 	prim.mesh_uri = msg.url(nil, prim.geom, "mesh")
-	go.set(prim.mesh_uri, "vertices", mesh.vbuf.buffer)
 end
 
 ------------------------------------------------------------------------------------------------------------
