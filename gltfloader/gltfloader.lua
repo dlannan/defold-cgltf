@@ -151,30 +151,31 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 			
 			if(mat.base_color_tex) then 
 				local bcolor = mat.base_color_tex
-				gltfloader:loadimages( model, mprim, bcolor)
+				gltfloader:loadimages( model, mprim, bcolor, "albedo")
 			end 
---  
--- 			if(mat.metallic_roughness_tex) then 
--- 				local bcolor = mat.metallic_roughness_tex
--- 				gltfloader:loadimages( model, mprim, bcolor )
--- 			end
--- 
--- 			local pbremissive = mat.emissive_tex
--- 			if(pbremissive) then 
--- 				local bcolor = pbremissive
--- 				gltfloader:loadimages( model, mprim, bcolor )
--- 			end
--- 			local pbrnormal = mat.normal_tex
--- 			if(pbrnormal) then  
--- 				local bcolor = pbrnormal
--- 				gltfloader:loadimages( model, mprim, bcolor )
--- 			end
--- 
--- 			local occulusion_tex = mat.occulusion_tex
--- 			if(occulusion_tex) then  
--- 				local bcolor = occulusion_tex
--- 				gltfloader:loadimages( model, mprim, bcolor )
--- 			end
+  
+			if(mat.metallic_roughness_tex) then 
+				local bcolor = mat.metallic_roughness_tex
+				gltfloader:loadimages( model, mprim, bcolor, "roughness" )
+			end
+
+			local pbremissive = mat.emissive_tex
+			if(pbremissive) then 
+				local bcolor = pbremissive
+				gltfloader:loadimages( model, mprim, bcolor, "emissive" )
+			end
+			
+			local pbrnormal = mat.normal_tex
+			if(pbrnormal) then  
+				local bcolor = pbrnormal
+				gltfloader:loadimages( model, mprim, bcolor, "normal" )
+			end
+
+			local occulusion_tex = mat.occulusion_tex
+			if(occulusion_tex) then  
+				local bcolor = occulusion_tex
+				gltfloader:loadimages( model, mprim, bcolor, "occulusion" )
+			end
 			
 			if(mat.doubleSided == true) then 
 
@@ -475,11 +476,19 @@ end
 ------------------------------------------------------------------------------------------------------------
 -- Load images: This is horribly slow at the moment. Will improve.
 
-function gltfloader:loadimages( model, prim, bcolor )
+local image_type_lookup = {
+	["albedo"] 		= "tetxure0",
+	["roughness"] 	= "tetxure1",
+	["emissive"] 	= "tetxure2",
+	["normal"] 		= "tetxure3",
+	["occulusion"]	= nil,
+}
+
+function gltfloader:loadimages( model, prim, bcolor, imgtype )
 
 	local img = nil
 	if bcolor  then 
-		
+		pprint(bcolor)
 		-- Load in any images 
 -- 		if(bcolor) then 
 -- 			-- print("TID: "..tid.."   "..model.basepath..bcolor.texture.source.uri)
@@ -528,7 +537,10 @@ function gltfloader:loadimages( model, prim, bcolor )
 		bcolor.img.texture_id = my_texture
 		bcolor.img.tbuffer = tbuffer 
 		if(prim and prim.mesh_uri) then 
-			self:queue_set(model, prim.mesh_uri, { "texture0", "tex0" }, bcolor.img.texture_id)
+			if(bcolor.img.texture_id) then 
+				local texture_name = image_type_lookup[imtype]
+				self:queue_set(model, prim.mesh_uri, { texture_name, "tex0" }, bcolor.img.texture_id)
+			end
 		end
 	end
 	return bcolor.img
