@@ -171,12 +171,13 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 				gltfloader:loadimages( model, mprim, bcolor, "normal" )
 			end
 
-			local occulusion_tex = mat.occulusion_tex
-			if(occulusion_tex) then  
-				local bcolor = occulusion_tex
-				gltfloader:loadimages( model, mprim, bcolor, "occulusion" )
-			end
-			
+			-- NOTE: Not needed atm. To be added.
+			-- local occulusion_tex = mat.occulusion_tex
+			-- if(occulusion_tex) then  
+			-- 	local bcolor = occulusion_tex
+			-- 	gltfloader:loadimages( model, mprim, bcolor, "occulusion" )
+			-- end
+			-- 
 			if(mat.doubleSided == true) then 
 
 			end
@@ -338,7 +339,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 					local uv = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 2)
 					-- glTF default sampler wrap is REPEAT; normalize UVs to match
 					tinsert(uvs, uv[1] % 1.0)
-					tinsert(uvs, uv[2] % 1.0)
+					tinsert(uvs, -uv[2] % 1.0)
 				end
 								
 				-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
@@ -477,10 +478,10 @@ end
 -- Load images: This is horribly slow at the moment. Will improve.
 
 local image_type_lookup = {
-	["albedo"] 		= "tetxure0",
-	["roughness"] 	= "tetxure1",
-	["emissive"] 	= "tetxure2",
-	["normal"] 		= "tetxure3",
+	["albedo"] 		= {"tetxure0", "albedoMap" },
+	["roughness"] 	= {"tetxure1", "roughnessMap" },
+	["emissive"] 	= {"tetxure2", "emissiveMap" },
+	["normal"] 		= {"tetxure3", "normalMap" },
 	["occulusion"]	= nil,
 }
 
@@ -522,7 +523,7 @@ function gltfloader:loadimages( model, prim, bcolor, imgtype )
 		}
 		if(count == 3) then tparams.format = graphics.TEXTURE_FORMAT_RGB end
 
-		local texture_name = string.format("/texture_%03d.texturec", bcolor.id)
+		local texture_name = string.format("/texture_%s_%03d.texturec", imgtype, bcolor.id)
 
 		local success, result = pcall(resource.get_texture, texture_name)
 		local my_texture = hash(texture_name)
@@ -539,7 +540,7 @@ function gltfloader:loadimages( model, prim, bcolor, imgtype )
 		if(prim and prim.mesh_uri) then 
 			if(bcolor.img.texture_id) then 
 				local texture_name = image_type_lookup[imtype]
-				self:queue_set(model, prim.mesh_uri, { texture_name, "tex0" }, bcolor.img.texture_id)
+				self:queue_set(model, prim.mesh_uri, texture_name, bcolor.img.texture_id)
 			end
 		end
 	end

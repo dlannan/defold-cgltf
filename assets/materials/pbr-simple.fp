@@ -97,10 +97,10 @@ void main()
 	}
 
 	float ambientLevel = fLightIntensity * (1.0 - params.x) + params.x;
-	// rgbFragment += rgbSpecular * 0.5;
-	// rgbFragment *= ambientLevel;
-	// rgbFragment += rgbReflection ;
-	// rgbFragment += rgbEmissive ;
+	rgbFragment += rgbSpecular * 0.5;
+	rgbFragment *= ambientLevel;
+	rgbFragment += rgbReflection ;
+	rgbFragment += rgbEmissive ;
 
 	gl_FragColor.rgb = rgbFragment;
 	gl_FragColor.a = colorData.a;

@@ -16,25 +16,6 @@ end
 
 -------------------------------------------------------------------------------------------------
 
-local function make_defaults()
-
-	-- a single white RGBA pixel
-	local white_pixel = ffi.new("uint32_t[1]", 0xFFFFFFFF)  -- 0xAARRGGBB = white
-
-	-- describe the image
-	local img_desc = ffi.new("sg_image_desc")
-	img_desc.width  = 1
-	img_desc.height = 1
-	img_desc.pixel_format = sg.SG_PIXELFORMAT_RGBA8
-	img_desc.data.subimage[0][0].ptr  = white_pixel
-	img_desc.data.subimage[0][0].size = ffi.sizeof(white_pixel)
-
-	-- create the sokol image
-	imageutils.default_white_image = sg.sg_make_image(img_desc)
-end
-
--------------------------------------------------------------------------------------------------
-
 local function loadimage(imgname, imagefilepath, tid )
 	
 	if(imagefilepath == nil) then 
@@ -89,7 +70,6 @@ end
 
 -------------------------------------------------------------------------------------------------
 
-imageutils.make_defaults 	= make_defaults
 imageutils.loadimage 		= loadimage
 imageutils.loadimagebuffer 	= loadimagebuffer
 imageutils.image_id			= image_id

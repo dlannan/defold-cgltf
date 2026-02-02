@@ -34,13 +34,12 @@ void main()
 
 	vec3 vLightModelPosition = vec3(mtx_view * vec4(light.xyz, 1.0));
 	vvLocalSurfaceToLightDirection = normalize(vLightModelPosition - p.xyz) ;
-
+	
 	vvLocalSurfaceNormal = normalize((mtx_normal * vec4(normal, 0.0)).xyz);
 	//	vvLocalSurfaceNormal = normalize(gl_Normal) ; // use the actual normal from the actual geometry
 
 	vec3 vLocalSurfaceToViewerDirection = normalize(vViewModelPosition - position.xyz) ;
 	vvLocalReflectedSurfaceToViewerDirection = normalize(reflect(vLocalSurfaceToViewerDirection, vvLocalSurfaceNormal)) ;
-
 	vuvCoord0 = texcoord0 ;
 
 	gl_Position = mtx_proj * p;
