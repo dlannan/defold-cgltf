@@ -142,12 +142,12 @@ mesh.create_buffer     = function(name, buffers, pid)
             })
         end
 
-        local datasize = buffers.icount * attribsize
-        if(datasize == 0) then 
-            datasize = vertcount * attribsize
+        local vertex_count = buffers.indices and #buffers.indices or vertcount
+        if (vertex_count == 0) then
+            return nil
         end
 
-        local buffer_handle = buffer.create(datasize, buffer_attribs)
+        local buffer_handle = buffer.create(vertex_count, buffer_attribs)
         for i, v in ipairs(attribs) do
             local stream = buffer.get_stream(buffer_handle, hash(v.name))
             -- transfer vertex data to buffer         
@@ -160,9 +160,10 @@ mesh.create_buffer     = function(name, buffers, pid)
                     end
                 end       
             else 
-                for bi = 0, vertcount -1 do
-                    stream[bi+1] = tonumber(v.data[bi+1])
-                end        
+                local total = vertcount * v.count
+                for bi = 1, total do
+                    stream[bi] = tonumber(v.data[bi])
+                end
             end
         end
                
@@ -178,7 +179,7 @@ mesh.create_buffer     = function(name, buffers, pid)
         local buffer_desc           = {}
         buffer_desc.type         = "VERTEXBUFFER"
         buffer_desc.buffer       = my_buffer
-        buffer_desc.size         = datasize / attribsize
+        buffer_desc.size         = vertex_count
         buffer_desc.attribs      = attribs
         buffer_desc.label        = buffer_name
         buffs.vbuf = buffer_desc

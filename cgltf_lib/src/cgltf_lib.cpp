@@ -31,8 +31,116 @@
 #include <map>
 #include <string>
 #include <fstream>
+#include <algorithm>
 
 static std::map<std::string, cgltf_data*>     loaded_files;
+static HResourceFactory g_ResourceFactory = 0;
+
+static std::string CanonicalizeResourcePath(const char* path)
+{
+    if (path == 0 || path[0] == 0)
+        return std::string();
+
+    std::string canonical(path);
+
+    std::replace(canonical.begin(), canonical.end(), '\\', '/');
+    if (canonical[0] != '/')
+        canonical.insert(canonical.begin(), '/');
+
+    // Squash consecutive slashes (Defold canonical paths are normalized)
+    std::string squashed;
+    squashed.reserve(canonical.size());
+    char prev = 0;
+    for (char ch : canonical)
+    {
+        if (ch == '/' && prev == '/')
+            continue;
+        squashed.push_back(ch);
+        prev = ch;
+    }
+
+    return squashed;
+}
+
+static cgltf_result CgltfDefoldFileRead(const struct cgltf_memory_options* memory_options, const struct cgltf_file_options* file_options, const char* path, cgltf_size* size, void** out_data)
+{
+    (void)file_options;
+
+    if (path == 0 || size == 0 || out_data == 0)
+        return cgltf_result_invalid_options;
+
+    if (g_ResourceFactory)
+    {
+        std::string canonical = CanonicalizeResourcePath(path);
+        if (!canonical.empty())
+        {
+            void* resource_data = 0;
+            uint32_t resource_size = 0;
+            ResourceResult rr = ResourceGetRaw(g_ResourceFactory, canonical.c_str(), &resource_data, &resource_size);
+            if (rr == RESOURCE_RESULT_OK)
+            {
+                *size = (cgltf_size)resource_size;
+                *out_data = resource_data;
+                return cgltf_result_success;
+            }
+        }
+    }
+
+    // Fallback: attempt to load directly from the OS filesystem (useful during development)
+    FILE* f = fopen(path, "rb");
+    if (!f)
+        return cgltf_result_file_not_found;
+
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    if (file_size <= 0)
+    {
+        fclose(f);
+        return cgltf_result_io_error;
+    }
+
+    void* (*memory_alloc)(void*, cgltf_size) = (memory_options && memory_options->alloc_func) ? memory_options->alloc_func : 0;
+    void* user_data = (memory_options) ? memory_options->user_data : 0;
+
+    void* data = memory_alloc ? memory_alloc(user_data, (cgltf_size)file_size) : malloc((size_t)file_size);
+    if (!data)
+    {
+        fclose(f);
+        return cgltf_result_out_of_memory;
+    }
+
+    size_t bytes_read = fread(data, 1, (size_t)file_size, f);
+    fclose(f);
+
+    if (bytes_read != (size_t)file_size)
+    {
+        if (memory_options && memory_options->free_func)
+            memory_options->free_func(memory_options->user_data, data);
+        else
+            free(data);
+        return cgltf_result_io_error;
+    }
+
+    *size = (cgltf_size)file_size;
+    *out_data = data;
+    return cgltf_result_success;
+}
+
+static void CgltfDefoldFileRelease(const struct cgltf_memory_options* memory_options, const struct cgltf_file_options* file_options, void* data, cgltf_size size)
+{
+    (void)file_options;
+    (void)size;
+
+    if (!data)
+        return;
+
+    if (memory_options && memory_options->free_func)
+        memory_options->free_func(memory_options->user_data, data);
+    else
+        free(data);
+}
 
 
 void DumpInfo(cgltf_data *data, const char *name) 
@@ -88,12 +196,14 @@ static int lib_cgltf_parse_file(lua_State* L)
     char* filename = (char*)luaL_checkstring(L, 1);
     std::string path(filename);
 
-    cgltf_options options = { cgltf_file_type(0) };
+    cgltf_options options = {};
+    options.file.read = &CgltfDefoldFileRead;
+    options.file.release = &CgltfDefoldFileRelease;
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse_file(&options, filename, &data);
     if (result != cgltf_result_success)
     {
-        printf("[Error] Issue parsing file: %s\n", filename);
+        printf("[Error] Issue parsing file: %s (cgltf_result=%d)\n", filename, (int)result);
         lua_pushnil(L);
         return 1;
     }
@@ -105,9 +215,17 @@ static int lib_cgltf_load_buffers(lua_State *L)
 {
     char* filepath = (char*)luaL_checkstring(L, 1);
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 2);
+    if (!data)
+    {
+        printf("[Error] Loading buffers: %s  (null cgltf_data)\n", filepath);
+        lua_pushnil(L);
+        return 1;
+    }
     
     // Load in the buffers
-    cgltf_options options = { cgltf_file_type(0) };    
+    cgltf_options options = {};
+    options.file.read = &CgltfDefoldFileRead;
+    options.file.release = &CgltfDefoldFileRelease;
     cgltf_result result = cgltf_load_buffers(&options, data, filepath);
     if(result == cgltf_result_success) {
         printf("[Info] Loaded buffers: %s\n", filepath);
@@ -137,7 +255,7 @@ static int lib_cgltf_validate(lua_State *L)
         lua_pushnumber(L, 1);
         return 1;
     } 
-    printf("[Error] Issue validating: %s\n", name);
+    printf("[Error] Issue validating: %s (null cgltf_data)\n", name);
     lua_pushnil(L);
     return 1;
 }
@@ -618,7 +736,17 @@ static int lib_get_mesh(lua_State *L) {
 static int lib_get_mesh_primitive(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     cgltf_mesh * mesh = (cgltf_mesh *)lua_touserdata(L, 2);
-    int i = lua_tonumber(L, 2);
+    int i = lua_tointeger(L, 3);
+    if (!data || !mesh)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
+    if (i < 0 || (cgltf_size)i >= mesh->primitives_count)
+    {
+        lua_pushnil(L);
+        return 1;
+    }
 
     lua_newtable(L);
     cgltf_primitive * prim = &mesh->primitives[i];
@@ -885,6 +1013,8 @@ static dmExtension::Result AppInitializecgltf_lib(dmExtension::AppParams* params
 
 static dmExtension::Result Initializecgltf_lib(dmExtension::Params* params)
 {
+    g_ResourceFactory = params->m_ResourceFactory;
+
     // Init Lua
     LuaInit(params->m_L);
     dmLogInfo("Registered %s Extension", MODULE_NAME);

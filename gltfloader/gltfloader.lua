@@ -48,7 +48,69 @@ local gltfloader = {
 	goscriptname 	= "script",
 	curr_factory 	= nil,
 	temp_meshes 	= {},
+	debug 			= false,
 }
+
+------------------------------------------------------------------------------------------------------------
+
+function gltfloader:queue_set(model, url, property, value)
+	if (model == nil) or (url == nil) or (property == nil) then
+		return
+	end
+
+	model._pending_sets = model._pending_sets or {}
+	tinsert(model._pending_sets, {
+		url = url,
+		property = property,
+		value = value,
+	})
+end
+
+function gltfloader:flush_pending(model)
+	if (model == nil) or model._pending_applied then
+		return
+	end
+
+	local pending = model._pending_sets
+	if pending then
+		for _, op in ipairs(pending) do
+			local ok = false
+			if type(op.property) == "table" then
+				for _, prop in ipairs(op.property) do
+					ok = pcall(go.set, op.url, prop, op.value)
+					if ok then break end
+				end
+			else
+				ok = pcall(go.set, op.url, op.property, op.value)
+			end
+
+			if (not ok) and self.debug then
+				print(string.format("[Warning] Failed to apply mesh property: %s", tostring(op.property)))
+			end
+		end
+	end
+
+	model._pending_sets = nil
+	model._pending_applied = true
+	model.is_ready = true
+end
+
+function gltfloader:schedule_apply_next_frame(model)
+	if (model == nil) or model._pending_apply_scheduled or model._pending_applied then
+		return
+	end
+
+	model._pending_apply_scheduled = true
+
+	if timer and timer.delay then
+		timer.delay(0, false, function()
+			gltfloader:flush_pending(model)
+		end)
+	else
+		-- Fallback for environments without the timer module
+		gltfloader:flush_pending(model)
+	end
+end
 
 ------------------------------------------------------------------------------------------------------------
 
@@ -60,7 +122,7 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 	if(prims == nil) then print("No Primitives?"); return end 
 	
 	-- Iterate primitives in this mesh
-	for k,prim in pairs(prims) do
+	for k,prim in ipairs(prims) do
 
 		-- If it has a material, load it, and set the material 
 		if(prim.material) then 
@@ -80,15 +142,15 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 				end
 			end
 			
-			if(mat.base_color_factor) then 
-				local bcolor = mat.base_color_factor
-				local mesh_uri = msg.url(nil, prim.geom, "mesh")
-				model.set_constant(mesh_uri, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]) )
-			end 
+			if(mat.base_color) then
+				local bcolor = mat.base_color
+				if mprim and mprim.mesh_uri then
+					self:queue_set(model, mprim.mesh_uri, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]))
+				end
+			end
 			
 			if(mat.base_color_tex) then 
 				local bcolor = mat.base_color_tex
-				bcolor = model.images[1]
 				gltfloader:loadimages( model, mprim, bcolor)
 			end 
 --  
@@ -191,7 +253,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 	thisnode.prims = thisnode.prims or {}
 	
 	-- collate all primitives (we ignore material separate prims)
-	for pid = 0, thismesh.primitives_count do
+	for pid = 0, thismesh.primitives_count - 1 do
 		local prim = cgltf.get_mesh_primitive(model.data, thismesh.addr, pid)
 
 		local verts = nil
@@ -273,8 +335,9 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 				-- uvs = cgltf.cgltf_accessor_read_float_all(attrib.data.addr, 2)
 				for i = 1, length do 
 					local uv = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 2)
-					tinsert(uvs, uv[1])
-					tinsert(uvs, uv[2])
+					-- glTF default sampler wrap is REPEAT; normalize UVs to match
+					tinsert(uvs, uv[1] % 1.0)
+					tinsert(uvs, uv[2] % 1.0)
 				end
 								
 				-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
@@ -321,7 +384,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		prim.rot 		= thisnode.rot
 		prim.scl 		= thisnode.scl
 		
-		prim.index_count = accessor.count
+		prim.index_count = accessor and accessor.count or 0
 
 		if(indices) then 
 
@@ -339,6 +402,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			if(prim.mesh_buffers) then 
 
 				geom:makeGeom(primmesh, prim, prim.mesh_buffers)
+				self:queue_set(model, prim.mesh_uri, "vertices", prim.mesh_buffers.vbuf.buffer)
 				tinsert(model.all_geom, prim.geom)
 				-- print("Added mesh buffer", prim.primmesh)
 			end
@@ -354,7 +418,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 		-- go.set_rotation(vmath.quat(), primgo)
 		-- go.set_position(vmath.vector3(0,0,0), primgo)
 		-- go.set_parent( primmesh, gochildname )
-		thisnode.prims[pid] = prim
+		thisnode.prims[pid + 1] = prim
 	end
 end
 
@@ -428,31 +492,26 @@ function gltfloader:loadimages( model, prim, bcolor )
 -- 			-- imageutils.defoldbufferimage(primmesh.mesh, bytes, pnginfo, tid )		
 -- 		end
 
-		-- img = model.image_map[bcolor.id+1]
-		local count = 4 
+		local count = 4
 		if(bcolor.img.type == "rgb") then count = 3 end
+
 		local imgsize = bcolor.img.width * bcolor.img.height
-		local tbuffer = buffer.create(imgsize, { {name=hash(bcolor.img.type), type=buffer.VALUE_TYPE_FLOAT32, count=count} } )
+		local tbuffer = buffer.create(imgsize, { {name=hash(bcolor.img.type), type=buffer.VALUE_TYPE_UINT8, count=count} } )
 		local tstream = buffer.get_stream(tbuffer, hash(bcolor.img.type))
 
-		-- Fill the buffer stream with some float values
 		local imgbuffer = bcolor.img.buffer
-
-		-- pprint("IMAGE BUFFER LEN:", #imgbuffer, bcolor.img.height * bcolor.img.width * count, count)
-		-- TODO: Use Accessor? or 4bytes -> float?
 		local imagesize = bcolor.img.height * bcolor.img.width * count
 		for pos=0, imagesize - 1 do
-			local val = string.byte(imgbuffer,  pos + 1, pos + 2) / 255.0
-			tstream[pos+1] = val 
+			tstream[pos+1] = string.byte(imgbuffer, pos + 1)
 		end
 		
 		local tparams = {
 			width          = bcolor.img.width,
 			height         = bcolor.img.height,
 			type           = graphics.TEXTURE_TYPE_2D,
-			format         = graphics.TEXTURE_FORMAT_RGBA32F,
+			format         = graphics.TEXTURE_FORMAT_RGBA,
 		}
-		if(count == 3) then tparams.format = graphics.TEXTURE_FORMAT_RGB32F end
+		if(count == 3) then tparams.format = graphics.TEXTURE_FORMAT_RGB end
 
 		local texture_name = string.format("/texture_%03d.texturec", bcolor.id)
 
@@ -460,13 +519,16 @@ function gltfloader:loadimages( model, prim, bcolor )
 		local my_texture = hash(texture_name)
 		if not success then
 			my_texture = resource.create_texture(texture_name, tparams, tbuffer)
+			if not my_texture then
+				print(string.format("[Error] Failed to create texture: %s", texture_name))
+				return nil
+			end
 		end   
 		
 		bcolor.img.texture_id = my_texture
 		bcolor.img.tbuffer = tbuffer 
-		-- local temp = hash("/builtins/assets/images/logo/logo_blue_256.texturec")
-		if(prim and prim.geom) then 
-			go.set(prim.mesh_uri, "texture0", bcolor.img.texture_id)
+		if(prim and prim.mesh_uri) then 
+			self:queue_set(model, prim.mesh_uri, { "texture0", "tex0" }, bcolor.img.texture_id)
 		end
 	end
 	return bcolor.img
@@ -743,6 +805,7 @@ function gltfloader:load_gltf( assetfilename, asset, disableaabb )
 		basepath = basepath,
 		data = data,
 		all_geom = {},
+		is_ready = false,
 		stats = {
 			vertices = 0,
 			polys = 0,
@@ -752,6 +815,16 @@ function gltfloader:load_gltf( assetfilename, asset, disableaabb )
 		},
 		counted = {},
 	}
+
+	if not data then
+		model.scene = { meshes = {}, nodes = {}, nodes_count = 0, num_meshes = 0 }
+		model.aabb = {
+			min = vmath.vector3(math.huge, math.huge, math.huge),
+			max = vmath.vector3(-math.huge, -math.huge, -math.huge),
+		}
+		model.is_ready = true
+		return model
+	end
 
 	gltf_parse_buffers(model)
 	gltf_parse_images(model)
@@ -789,6 +862,13 @@ function gltfloader:load_gltf( assetfilename, asset, disableaabb )
 
 	if(model.aabb == nil) then 
 		print("[Error] Model has no aabb: "..assetfilename)
+	end
+
+	-- Defer applying vertices/textures/tint until the next frame to ensure engine updates have run
+	if model._pending_sets then
+		self:schedule_apply_next_frame(model)
+	else
+		model.is_ready = true
 	end
 	return model
 end
