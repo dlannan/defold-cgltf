@@ -777,29 +777,11 @@ function gltfloader:load( model, scene, pobj, meshname )
 end
 
 -- --------------------------------------------------------------------------------------------------------
--- This is a special version of load that allows the loading of a single mesh into a gameobject manager
 
-function gltfloader:load_gltf( assetfilename, asset, disableaabb )
-
-	-- Check for gltf - only support this at the moment. 
-	local valid = string.match(assetfilename, ".+%."..asset.format)
-	assert(valid)
+function gltfloader:load_gltf_data(data, assetfilename, asset, disableaabb )
 
 	local basepath = assetfilename:match("(.*[\\/])")
-	
-	-- Parse using geomext 
-
-	local data = cgltf.cgltf_parse_file(assetfilename)
-	if(data) then 	
-		-- Handle autodestruction when data is made nil
-		-- ffi.gc(data, function(d)
-		-- 	if d[0] ~= nil then cgltf.cgltf_free(d[0]); d[0] = nil end
-		-- end)
-		print("[Info] gltf loaded: ", assetfilename)
-	else 
-		print("[Error] Unable to load gltf: ", assetfilename)
-	end
-
+		
 	local model = {
 		filename = assetfilename,
 		basepath = basepath,
@@ -871,6 +853,56 @@ function gltfloader:load_gltf( assetfilename, asset, disableaabb )
 		model.is_ready = true
 	end
 	return model
+end
+
+-- --------------------------------------------------------------------------------------------------------
+-- This is a special version of load that allows the loading of a single mesh into a gameobject manager
+
+function gltfloader:load_gltf_async( assetfilename, asset, disableaabb, callback )
+
+	pprint(assetfilename)
+	sys.load_buffer_async(assetfilename, function(self, request_id, result)
+
+		local stream = buffer.get_bytes(result.buffer, "data")
+		local data = cgltf.cgltf_parse(stream, #stream)
+		
+		if(data) then 	
+			-- Handle autodestruction when data is made nil
+			-- ffi.gc(data, function(d)
+			-- 	if d[0] ~= nil then cgltf.cgltf_free(d[0]); d[0] = nil end
+			-- end)
+			print("[Info] gltf loaded: ", assetfilename)
+		else 
+			print("[Error] Unable to load gltf: ", assetfilename)
+			callback( nil )
+		end
+		local mesh = gltfloader:load_gltf_data(data, assetfilename, asset, disableaabb )
+		callback( mesh )
+	end)
+end
+
+
+-- --------------------------------------------------------------------------------------------------------
+-- This is a special version of load that allows the loading of a single mesh into a gameobject manager
+
+function gltfloader:load_gltf( assetfilename, asset, disableaabb )
+
+	-- Check for gltf - only support this at the moment. 
+	local valid = string.match(assetfilename, ".+%."..asset.format)
+	assert(valid)
+
+	local data = cgltf.cgltf_parse_file(assetfilename, asset, disableaabb )
+	if(data) then 	
+		-- Handle autodestruction when data is made nil
+		-- ffi.gc(data, function(d)
+		-- 	if d[0] ~= nil then cgltf.cgltf_free(d[0]); d[0] = nil end
+		-- end)
+		print("[Info] gltf loaded: ", assetfilename)
+	else 
+		print("[Error] Unable to load gltf: ", assetfilename)
+		return nil
+	end
+	return self:load_gltf_data(data, assetfilename, asset, disableaabb )
 end
 
 ------------------------------------------------------------------------------------------------------------

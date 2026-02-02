@@ -189,6 +189,27 @@ static void make_name( char ** name, char *group, int id )
 }
 
 // Open a gltf file
+static int lib_cgltf_parse(lua_State* L)
+{
+    DM_LUA_STACK_CHECK(L, 1);
+
+    char* buffer = (char*)luaL_checkstring(L, 1);
+    size_t buffer_size = luaL_checknumber(L, 2);
+
+    cgltf_data *data  = new cgltf_data();
+    cgltf_options options = {};
+    cgltf_result result = cgltf_parse(&options, buffer, buffer_size, &data);
+    if (result != cgltf_result_success)
+    {
+        printf("[Error] Issue parsing buffer (cgltf_result=%d)\n", (int)result);
+        lua_pushnil(L);
+        return 1;
+    }
+    lua_pushlightuserdata(L, (void *)data);
+    return 1;
+}
+
+// Open a gltf file
 static int lib_cgltf_parse_file(lua_State* L)
 {
     DM_LUA_STACK_CHECK(L, 1);
@@ -950,6 +971,7 @@ static int lib_get_accessor(lua_State *L) {
 // Functions exposed to Lua
 static const luaL_reg Module_methods[] =
 {
+    {"cgltf_parse", lib_cgltf_parse},
     {"cgltf_parse_file", lib_cgltf_parse_file},
     {"cgltf_load_buffers", lib_cgltf_load_buffers},
     {"cgltf_validate", lib_cgltf_validate},
