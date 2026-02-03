@@ -62,87 +62,6 @@ static std::string CanonicalizeResourcePath(const char* path)
     return squashed;
 }
 
-static cgltf_result CgltfDefoldFileRead(const struct cgltf_memory_options* memory_options, const struct cgltf_file_options* file_options, const char* path, cgltf_size* size, void** out_data)
-{
-    (void)file_options;
-
-    if (path == 0 || size == 0 || out_data == 0)
-        return cgltf_result_invalid_options;
-
-    if (g_ResourceFactory)
-    {
-        std::string canonical = CanonicalizeResourcePath(path);
-        if (!canonical.empty())
-        {
-            void* resource_data = 0;
-            uint32_t resource_size = 0;
-            ResourceResult rr = ResourceGetRaw(g_ResourceFactory, canonical.c_str(), &resource_data, &resource_size);
-            if (rr == RESOURCE_RESULT_OK)
-            {
-                *size = (cgltf_size)resource_size;
-                *out_data = resource_data;
-                return cgltf_result_success;
-            }
-        }
-    }
-
-    // Fallback: attempt to load directly from the OS filesystem (useful during development)
-    FILE* f = fopen(path, "rb");
-    if (!f)
-        return cgltf_result_file_not_found;
-
-    fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-
-    if (file_size <= 0)
-    {
-        fclose(f);
-        return cgltf_result_io_error;
-    }
-
-    void* (*memory_alloc)(void*, cgltf_size) = (memory_options && memory_options->alloc_func) ? memory_options->alloc_func : 0;
-    void* user_data = (memory_options) ? memory_options->user_data : 0;
-
-    void* data = memory_alloc ? memory_alloc(user_data, (cgltf_size)file_size) : malloc((size_t)file_size);
-    if (!data)
-    {
-        fclose(f);
-        return cgltf_result_out_of_memory;
-    }
-
-    size_t bytes_read = fread(data, 1, (size_t)file_size, f);
-    fclose(f);
-
-    if (bytes_read != (size_t)file_size)
-    {
-        if (memory_options && memory_options->free_func)
-            memory_options->free_func(memory_options->user_data, data);
-        else
-            free(data);
-        return cgltf_result_io_error;
-    }
-
-    *size = (cgltf_size)file_size;
-    *out_data = data;
-    return cgltf_result_success;
-}
-
-static void CgltfDefoldFileRelease(const struct cgltf_memory_options* memory_options, const struct cgltf_file_options* file_options, void* data, cgltf_size size)
-{
-    (void)file_options;
-    (void)size;
-
-    if (!data)
-        return;
-
-    if (memory_options && memory_options->free_func)
-        memory_options->free_func(memory_options->user_data, data);
-    else
-        free(data);
-}
-
-
 void DumpInfo(cgltf_data *data, const char *name) 
 {
     printf("CGLTF File Info: %s\n", name);
@@ -188,6 +107,57 @@ static void make_name( char ** name, char *group, int id )
     sprintf(*name, "%s%03d", group, id );
 }
 
+// Open a an image based on a buffer of data
+static int lib_load_image_data(lua_State* L)
+{
+    DM_LUA_STACK_CHECK(L, 1);
+
+    char* buffer = (char*)luaL_checkstring(L, 1);
+    int buffer_size = luaL_checknumber(L, 2);
+
+    int w, h, n;
+    char* img = (char *)stbi_load_from_memory((uint8_t *)buffer, buffer_size, &w, &h, &n, 0);
+    if (img == nullptr) {
+        printf("[Error] STB failed to load image.\n");
+        lua_pushnil(L);
+        return 1;
+    }
+
+    lua_newtable(L);
+    lua_pushstring(L, "width" );
+    lua_pushnumber(L, w);
+    lua_settable(L, -3);
+    
+    lua_pushstring(L, "height" );
+    lua_pushnumber(L, h);
+    lua_settable(L, -3);
+   
+    lua_pushstring(L, "type" );
+    if(n == 3) 
+        lua_pushstring(L, "rgb");
+    else
+        lua_pushstring(L, "rgba");
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "buffer" );
+    lua_pushlstring(L, img, w * h * n);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "buffer_size" );
+    lua_pushnumber(L, w * h * n);;
+    lua_settable(L, -3);
+    return 1;
+}
+
+// Open a an image based on a buffer of data
+static int lib_free_image_data(lua_State* L)
+{
+    char *data = (char *)lua_touserdata(L, 1);
+    if(data == nullptr) return 0;
+    stbi_image_free(data);
+    return 0;
+}
+
 // Open a gltf file
 static int lib_cgltf_parse(lua_State* L)
 {
@@ -218,8 +188,6 @@ static int lib_cgltf_parse_file(lua_State* L)
     std::string path(filename);
 
     cgltf_options options = {};
-    options.file.read = &CgltfDefoldFileRead;
-    options.file.release = &CgltfDefoldFileRelease;
     cgltf_data* data = NULL;
     cgltf_result result = cgltf_parse_file(&options, filename, &data);
     if (result != cgltf_result_success)
@@ -245,8 +213,6 @@ static int lib_cgltf_load_buffers(lua_State *L)
     
     // Load in the buffers
     cgltf_options options = {};
-    options.file.read = &CgltfDefoldFileRead;
-    options.file.release = &CgltfDefoldFileRelease;
     cgltf_result result = cgltf_load_buffers(&options, data, filepath);
     if(result == cgltf_result_success) {
         printf("[Info] Loaded buffers: %s\n", filepath);
@@ -342,7 +308,31 @@ static int lib_get_image_index(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     int i = lua_tonumber(L, 2);
     cgltf_image * image = &data->images[i];
+
+    lua_newtable(L);
+
+    lua_pushstring(L, "addr" );
     lua_pushlightuserdata(L, image);
+    lua_settable(L, -3);
+
+    char *name = image->name;
+    if(name == nullptr) {
+        int image_id = cgltf_image_index(data, image);
+        make_name(&name, "image_", image_id);
+    }
+
+    lua_pushstring(L, "name" );
+    lua_pushstring(L, name);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "uri" );
+    lua_pushstring(L, image->uri);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "mime_type" );
+    lua_pushstring(L, image->mime_type);
+    lua_settable(L, -3);
+        
     return 1;
 }
 
@@ -558,8 +548,32 @@ static int lib_get_textures_count(lua_State *L) {
 static int lib_get_texture_index(lua_State *L) {
     cgltf_data * data = (cgltf_data *)lua_touserdata(L, 1);
     int i = lua_tonumber(L, 2);
+
+    lua_newtable(L);
     cgltf_texture * tex = &data->textures[i];
+
+    lua_pushstring(L, "addr" );
     lua_pushlightuserdata(L, tex);
+    lua_settable(L, -3);
+
+    char *name = tex->name;
+    if(name == nullptr) {
+        int tex_id = cgltf_texture_index(data, tex);
+        make_name(&name, "tex_", tex_id);
+    }
+
+    lua_pushstring(L, "name" );
+    lua_pushstring(L, name);
+    lua_settable(L, -3);
+    
+    lua_pushstring(L, "image" );
+    lua_pushlightuserdata(L, tex->image);
+    lua_settable(L, -3);
+
+    lua_pushstring(L, "sampler" );
+    lua_pushlightuserdata(L, tex->sampler);
+    lua_settable(L, -3);
+        
     return 1;
 }
 
@@ -1011,6 +1025,9 @@ static const luaL_reg Module_methods[] =
 
     {"get_accessor", lib_get_accessor},
 
+    {"load_image_data", lib_load_image_data},
+    {"free_image_data", lib_free_image_data},
+    
     {"dump_info", DumpGLTFInfo},
     {0, 0}
 };

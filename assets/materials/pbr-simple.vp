@@ -1,17 +1,21 @@
+#version 140
 // Positions can be world or local space, since world and normal
 // matrices are identity for world vertex space materials.
 // If world vertex space is selected, you can remove the
 // normal matrix multiplication for optimal performance.
 
-attribute highp vec4 position;
-attribute mediump vec2 texcoord0;
-attribute mediump vec3 normal;
+in highp vec4 position;
+in mediump vec2 texcoord0;
+in mediump vec3 normal;
 
-uniform mediump mat4 mtx_worldview;
-uniform mediump mat4 mtx_view;
-uniform mediump mat4 mtx_proj;
-uniform mediump mat4 mtx_normal;
-uniform mediump vec4 light;
+uniform vs_uniforms
+{
+	mediump mat4 mtx_worldview;
+	mediump mat4 mtx_view;
+	mediump mat4 mtx_proj;
+	mediump mat4 mtx_normal;
+	mediump vec4 light;
+};
 
 //uniform mediump vec4 camPos;
 
@@ -20,11 +24,11 @@ uniform mediump vec4 light;
 
 // attribute vec3 aVertexTangent;
 
-varying vec3 vvLocalSurfaceNormal ;
-varying vec3 vvLocalSurfaceToLightDirection;
-varying vec3 vvLocalReflectedSurfaceToViewerDirection;
-varying vec3 vvLocalSurfaceToViewerDirection;
-varying vec2 vuvCoord0 ;
+out vec3 vvLocalSurfaceNormal ;
+out vec3 vvLocalSurfaceToLightDirection;
+out vec3 vvLocalReflectedSurfaceToViewerDirection;
+out vec3 vvLocalSurfaceToViewerDirection;
+out vec2 vuvCoord0 ;
 
 void main()
 {

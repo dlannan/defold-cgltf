@@ -52,6 +52,8 @@ function init(self)
 	load_gltf(model, function(mesh)
 		cgltf.cgltf_validate("BoxTex", mesh.data)
 		tinsert(meshes, mesh)
+		-- Process queued go sets.
+		timer.delay(0.1, false, function() gltfloader:process_set(mesh) end)
 	end)
 end
 

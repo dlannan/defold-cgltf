@@ -53,63 +53,21 @@ local gltfloader = {
 
 ------------------------------------------------------------------------------------------------------------
 
-function gltfloader:queue_set(model, url, property, value)
-	if (model == nil) or (url == nil) or (property == nil) then
-		return
-	end
+local function queue_set( model, uri, prop, value )
 
-	model._pending_sets = model._pending_sets or {}
-	tinsert(model._pending_sets, {
-		url = url,
-		property = property,
-		value = value,
-	})
+	model.set_list = model.set_list or {}
+	tinsert( model.set_list, { uri = uri, prop = prop, value = value })
 end
 
-function gltfloader:flush_pending(model)
-	if (model == nil) or model._pending_applied then
-		return
+------------------------------------------------------------------------------------------------------------
+
+function gltfloader:process_set( model )
+
+	if(model.set_list == nil) then return end 
+	for i, v in ipairs(model.set_list) do
+		go.set( v.uri, v.prop, v.value)
 	end
-
-	local pending = model._pending_sets
-	if pending then
-		for _, op in ipairs(pending) do
-			local ok = false
-			if type(op.property) == "table" then
-				for _, prop in ipairs(op.property) do
-					ok = pcall(go.set, op.url, prop, op.value)
-					if ok then break end
-				end
-			else
-				ok = pcall(go.set, op.url, op.property, op.value)
-			end
-
-			if (not ok) and self.debug then
-				print(string.format("[Warning] Failed to apply mesh property: %s", tostring(op.property)))
-			end
-		end
-	end
-
-	model._pending_sets = nil
-	model._pending_applied = true
-	model.is_ready = true
-end
-
-function gltfloader:schedule_apply_next_frame(model)
-	if (model == nil) or model._pending_apply_scheduled or model._pending_applied then
-		return
-	end
-
-	model._pending_apply_scheduled = true
-
-	if timer and timer.delay then
-		timer.delay(0, false, function()
-			gltfloader:flush_pending(model)
-		end)
-	else
-		-- Fallback for environments without the timer module
-		gltfloader:flush_pending(model)
-	end
+	model.set_list = nil
 end
 
 ------------------------------------------------------------------------------------------------------------
@@ -145,7 +103,8 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 			if(mat.base_color) then
 				local bcolor = mat.base_color
 				if mprim and mprim.mesh_uri then
-					self:queue_set(model, mprim.mesh_uri, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]))
+					-- This fails - it shouldnt. The mesh is insanced so the constant should be able to be set!
+					--queue_set(model, mprim.mesh_uri, "tint", vmath.vector4(bcolor[1], bcolor[2], bcolor[3], bcolor[4]))
 				end
 			end
 			
@@ -153,31 +112,27 @@ function gltfloader:processmaterials( model, gochildname, thisnode )
 				local bcolor = mat.base_color_tex
 				gltfloader:loadimages( model, mprim, bcolor, "albedo")
 			end 
-  
+
 			if(mat.metallic_roughness_tex) then 
 				local bcolor = mat.metallic_roughness_tex
 				gltfloader:loadimages( model, mprim, bcolor, "roughness" )
 			end
 
-			local pbremissive = mat.emissive_tex
-			if(pbremissive) then 
-				local bcolor = pbremissive
+			if(mat.emissive_tex) then 
+				local bcolor = mat.emissive_tex
 				gltfloader:loadimages( model, mprim, bcolor, "emissive" )
 			end
-			
-			local pbrnormal = mat.normal_tex
-			if(pbrnormal) then  
-				local bcolor = pbrnormal
+
+			if(mat.normal_tex) then  
+				local bcolor = mat.normal_tex
 				gltfloader:loadimages( model, mprim, bcolor, "normal" )
 			end
 
-			-- NOTE: Not needed atm. To be added.
-			-- local occulusion_tex = mat.occulusion_tex
-			-- if(occulusion_tex) then  
-			-- 	local bcolor = occulusion_tex
-			-- 	gltfloader:loadimages( model, mprim, bcolor, "occulusion" )
-			-- end
-			-- 
+			if(mat.occulusion_tex) then  
+				local bcolor = mat.occulusion_tex
+				gltfloader:loadimages( model, mprim, bcolor, "occulusion" )
+			end
+			
 			if(mat.doubleSided == true) then 
 
 			end
@@ -339,7 +294,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 					local uv = cgltf.cgltf_accessor_read_float(attrib.data.addr, i-1, 2)
 					-- glTF default sampler wrap is REPEAT; normalize UVs to match
 					tinsert(uvs, uv[1] % 1.0)
-					tinsert(uvs, -uv[2] % 1.0)
+					tinsert(uvs, uv[2] % 1.0)
 				end
 								
 				-- geomextension.setdataindexfloatstotable( buffer_data, uvs, indices, 2)
@@ -404,7 +359,7 @@ function gltfloader:processdata( model, gochildname, thisnode, parent )
 			if(prim.mesh_buffers) then 
 
 				geom:makeGeom(primmesh, prim, prim.mesh_buffers)
-				self:queue_set(model, prim.mesh_uri, "vertices", prim.mesh_buffers.vbuf.buffer)
+				queue_set(model, prim.mesh_uri, "vertices", prim.mesh_buffers.vbuf.buffer)
 				tinsert(model.all_geom, prim.geom)
 				-- print("Added mesh buffer", prim.primmesh)
 			end
@@ -478,18 +433,18 @@ end
 -- Load images: This is horribly slow at the moment. Will improve.
 
 local image_type_lookup = {
-	["albedo"] 		= {"tetxure0", "albedoMap" },
-	["roughness"] 	= {"tetxure1", "roughnessMap" },
-	["emissive"] 	= {"tetxure2", "emissiveMap" },
-	["normal"] 		= {"tetxure3", "normalMap" },
-	["occulusion"]	= nil,
+	["albedo"] 		= "texture0",
+	["roughness"] 	= "texture1",
+	["emissive"] 	= "texture2",
+	["normal"] 		= "texture3",
+	["occulusion"]	= "texture4" ,
 }
 
 function gltfloader:loadimages( model, prim, bcolor, imgtype )
 
 	local img = nil
 	if bcolor  then 
-		pprint(bcolor)
+
 		-- Load in any images 
 -- 		if(bcolor) then 
 -- 			-- print("TID: "..tid.."   "..model.basepath..bcolor.texture.source.uri)
@@ -539,8 +494,8 @@ function gltfloader:loadimages( model, prim, bcolor, imgtype )
 		bcolor.img.tbuffer = tbuffer 
 		if(prim and prim.mesh_uri) then 
 			if(bcolor.img.texture_id) then 
-				local texture_name = image_type_lookup[imtype]
-				self:queue_set(model, prim.mesh_uri, texture_name, bcolor.img.texture_id)
+				local texture_param = image_type_lookup[imgtype]
+				queue_set(model, prim.mesh_uri, texture_param, my_texture)
 			end
 		end
 	end
@@ -615,51 +570,47 @@ end
 
 local function get_addr(addr)
 	local hex = string.match(tostring(addr), "userdata: (.+)")
-	return tonumber(hex)
+	if(hex == nil) then hex = addr end 
+	return bit.band(tonumber(hex), 0xffffff)
 end
 
 -- --------------------------------------------------------------------------------------------------------
 -- Load images using our utils.
 function gltf_parse_images(model)
 
-	local image_map = {}
 	model.images = {}
 	local image_count = cgltf.get_images_count(model.data)
 	for i=0, image_count -1 do 
 		local img = cgltf.get_image_index(model.data, i)
-		local addr = get_addr(img)
-		image_map[addr] = i+1
+		local addr = get_addr(img.addr)
 		local image = nil
-		local imagename = cgltf.get_image_name(model.data, img)
-		local img_uri = cgltf.get_image_uri(img)
+		local imagename = img.name
+		local img_uri = img.uri
 		if(img_uri) then 
 			local filepath = model.basepath..tostring(img_uri)
-			image = imageutils.loadimage(imagename, filepath, i+1 )
+			image = imageutils.loadimage(imagename, filepath )
 		else 
 			local bv = cgltf.get_image_buffer_view(img)
 			local bvsize = cgltf.get_buffer_view_size(bv)
 			local bufptr = cgltf.cgltf_buffer_view_data(bv)
-			image = imageutils.loadimagebuffer(imagename, bufptr, bvsize, i+1 )
-			pprint(image)
+			image = imageutils.loadimagebuffer(imagename, bufptr, bvsize )
 		end
 		if(image) then 
-			model.images[i+1] = image
+			model.images[addr] = image
 		else
 			pprint(string.format("[Error] Failed to add image: %s  uri: %s",imagename, img_uri))
 		end
-		collectgarbage("collect")
 	end
-
+	collectgarbage("collect")
+	
 	-- Loade images into texture slots! 
 	model.textures = {}
 	model.textures_map = {}
 	local textures_count = cgltf.get_textures_count(model.data)
 	for i = 0, textures_count-1 do
 		local tex = cgltf.get_texture_index(model.data, i)
-		local tex_image = cgltf.get_texture_image(tex)
-		local img_id = image_map[get_addr(tex_image)]
-		local tex_img = model.images[img_id]
-		local texaddr = get_addr(tex)
+		local tex_img = model.images[get_addr(tex.image)]
+		local texaddr = get_addr(tex.addr)
 		model.textures_map[texaddr] = tex_img
     	tinsert(model.textures, tex_img)
 		model.stats.textures = model.stats.textures + 1
@@ -698,6 +649,11 @@ function gltf_parse_materials(model)
 			scene_mat.normal_tex = model.textures_map[get_addr(gltf_mat.normal_texture)]
 			scene_mat.occulusion_tex = model.textures_map[get_addr(gltf_mat.occlusion_texture)]
 			scene_mat.emissive_tex = model.textures_map[get_addr(gltf_mat.emissive_texture)]
+			-- pprint("Scene Mat Base Color", scene_mat.base_color_tex)
+			-- pprint("Scene Mat Normal", scene_mat.normal_tex)
+			pprint("Scene Mat Emissive", get_addr(gltf_mat.emissive_texture), scene_mat.emissive_tex)
+			-- pprint("Scene Mat Occlusion", scene_mat.occlusion_tex)
+			-- pprint("Scene Mat Metall Rough", scene_mat.metallic_roughness_tex)
 		end 
 		model.materials_map[ get_addr(gltf_mat.addr) ] = scene_mat
 		tinsert(model.materials, scene_mat)
@@ -865,6 +821,7 @@ function gltfloader:load_gltf_data(data, assetfilename, asset, disableaabb )
 	else
 		model.is_ready = true
 	end
+
 	return model
 end
 

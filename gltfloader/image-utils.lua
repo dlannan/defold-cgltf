@@ -16,22 +16,27 @@ end
 
 -------------------------------------------------------------------------------------------------
 
-local function loadimage(imgname, imagefilepath, tid )
+local function loadimage(imgname, imagefilepath )
 	
 	if(imagefilepath == nil) then 
 		print("[Image Load Error] imagefilepath is nil.") 
 		return nil
 	end
+	local tid = image_id()
 
 	imagefilepath = utils.cleanstring( imagefilepath )
-	local buff = sys.load_buffer("/"..imagefilepath)
+	-- local buff = sys.load_buffer("/"..imagefilepath)
+	local buff = resource.load("/"..imagefilepath)
 	local data_str = buffer.get_bytes(buff, "data")
-	local img = image.load(data_str, {})
+
+	pprint("========>>>> Loading...", imagefilepath, #data_str)
+	-- local img = image.load(data_str, {})
+	local img = cgltf.load_image_data(data_str, #data_str)
 	if(img == nil) then 
 		print("[Image Load Error] Cannot load image: "..imagefilepath) 
 		return nil
 	end 
-	pprint("[Info] Image loaded: "..imagefilepath.."  size: "..#img.buffer)
+	pprint("[Info] Image loaded: "..imagefilepath.."  size: "..#data_str)
 	local res = {
 		id 		= tid,
 		img 	= img, 
@@ -45,14 +50,15 @@ end
 
 -------------------------------------------------------------------------------------------------
 
-local function loadimagebuffer(imgname, buf, bufsize, tid )
+local function loadimagebuffer(imgname, buf, bufsize )
 
 	if(buf == nil) then 
 		print("[Image Load Error] imagebuffer is nil.") 
 		return nil
 	end
-	
-	local img = image.load(buf, {})
+
+	local tid = image_id()
+	local img = cgltf.load_image_data(buf, #buf)
 	if(img == nil) then 
 		print("[Image Load Error] Cannot load image buffer from gameobj: "..goname) 
 		return nil

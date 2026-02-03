@@ -19,7 +19,7 @@ vertex_constants {
   name: "light"
   type: CONSTANT_TYPE_USER
   value {
-    y: 100.0
+    y: 10.0
     w: 20.0
   }
 }
@@ -71,4 +71,20 @@ samplers {
   wrap_v: WRAP_MODE_REPEAT
   filter_min: FILTER_MODE_MIN_DEFAULT
   filter_mag: FILTER_MODE_MAG_DEFAULT
+}
+samplers {
+  name: "occlusionMap"
+  wrap_u: WRAP_MODE_REPEAT
+  wrap_v: WRAP_MODE_REPEAT
+  filter_min: FILTER_MODE_MIN_DEFAULT
+  filter_mag: FILTER_MODE_MAG_DEFAULT
+  max_anisotropy: 0.0
+}
+samplers {
+  name: "cubeMap"
+  wrap_u: WRAP_MODE_REPEAT
+  wrap_v: WRAP_MODE_REPEAT
+  filter_min: FILTER_MODE_MIN_DEFAULT
+  filter_mag: FILTER_MODE_MAG_DEFAULT
+  max_anisotropy: 0.0
 }

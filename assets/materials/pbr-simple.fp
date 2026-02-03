@@ -1,20 +1,27 @@
+#version 140
 // Original work by Martia A Saunders
 // https://dominium.maksw.com/articles/physically-based-rendering-pbr/pbr-part-one/
 
-//uniform samplerCube cubeMap ;
-uniform sampler2D emissiveMap ;
-uniform sampler2D roughnessMap;
+out vec4 out_fragColor;
+
 uniform sampler2D albedoMap ;
+uniform sampler2D roughnessMap;
+uniform sampler2D emissiveMap ;
 uniform sampler2D normalMap ;
+uniform sampler2D occlusionMap ;
+uniform samplerCube cubeMap ;
 
-uniform vec4 tint;
-uniform vec4 params;
+uniform fs_uniforms
+{
+	vec4 tint;
+	vec4 params;
+};
 
-varying vec3 vvLocalSurfaceNormal ;
-varying vec3 vvLocalSurfaceToLightDirection;
-varying vec3 vvLocalReflectedSurfaceToViewerDirection;
-varying vec2 vuvCoord0 ;
-varying vec3 vvLocalSurfaceToViewerDirection;
+in vec3 vvLocalSurfaceNormal ;
+in vec3 vvLocalSurfaceToLightDirection;
+in vec3 vvLocalReflectedSurfaceToViewerDirection;
+in vec2 vuvCoord0 ;
+in vec3 vvLocalSurfaceToViewerDirection;
 
 const float cpi = 3.14159265358979323846264338327950288419716939937510f ;
 
@@ -76,13 +83,13 @@ void main()
 	float fLightSourceFresnelTerm = computeFresnelTerm(0.5, vNormalisedLocalSurfaceToViewerDirection, vNormalisedLocalSurfaceNormal) ;
 
 	vec4 colorData = texture(albedoMap, vuvCoord0);
+	vec4 occlusion = texture(occlusionMap, vuvCoord0);
 	vec3 rgbAlbedo = colorData.rgb * tint.xyz;
 	vec3 rgbEmissive = texture(emissiveMap, vuvCoord0).rgb;
 
 	vec3 rgbFragment = rgbAlbedo * (1.0 - fMetalness);
 
-	//vec3 rgbSourceReflection = textureCubeLod(cubeMap, vNormalisedLocalReflectedSurfaceToViewerDirection, 9.0 * fRoughness).rgb ;
-	vec3 rgbSourceReflection = vec3(0.0);
+	vec3 rgbSourceReflection = texture(cubeMap, vNormalisedLocalReflectedSurfaceToViewerDirection, 9.0 * fRoughness).rgb ;
 	vec3 rgbReflection = rgbSourceReflection ;
 	rgbReflection *= rgbAlbedo * fMetalness ;
 	rgbReflection *= fLightSourceFresnelTerm ;
@@ -97,11 +104,11 @@ void main()
 	}
 
 	float ambientLevel = fLightIntensity * (1.0 - params.x) + params.x;
-	rgbFragment += rgbSpecular * 0.5;
+	rgbFragment += rgbSpecular;
 	rgbFragment *= ambientLevel;
-	rgbFragment += rgbReflection ;
-	rgbFragment += rgbEmissive ;
-
-	gl_FragColor.rgb = rgbFragment;
-	gl_FragColor.a = colorData.a;
+	rgbFragment += rgbReflection;
+	rgbFragment += rgbEmissive;
+	
+	out_fragColor.rgb = rgbFragment;
+	out_fragColor.a = colorData.a;
 }
